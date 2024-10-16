@@ -1,9 +1,11 @@
 import io
+import re
 import sys
 import typing as t
 import weakref
 
 import pandas as pd
+from tabulate import tabulate
 
 
 class CLIOutput:
@@ -156,14 +158,74 @@ class CLIOutput:
 
         return col_widths
 
+    def how_many_columns_needed(self: t.Self, text: str) -> str:
+        current_number_of_columns_required = 0
+        while True:
+            for item in text.split("\n"):
+                parts = re.split(r"(\s{2,})", item)
+                tmp_list = []
+                for part in parts:
+                    if part.strip() != "":
+                        tmp_list.append(part)
+                columns_required = len(tmp_list)
+                if current_number_of_columns_required != 0:
+                    if columns_required != current_number_of_columns_required:
+                        text = ".   " + text
+                        break
+                current_number_of_columns_required = columns_required
+            break
+        return text, columns_required
+
+    def make_list_of_lists(self: t.Self, text: str, number_of_columns: int = 2) -> list[list]:
+        """
+
+        Splits the input text into a list of lists based on whitespace.
+        Each inner list contains segments of the text that are separated by two or more spaces.
+
+        This function processes the input string by splitting it at points where there are two or more consecutive spaces.
+        It constructs a list of lists, where each inner list contains non-empty segments of the original text,
+        ensuring that each inner list has at most two elements.
+
+        Args:
+            text (str): The input string to be processed.
+
+        Returns:
+            list[list]: A list of lists containing the segments of the input string.
+
+        Raises:
+            None
+
+        Examples:
+            >>> make_list_of_lists("item1  item2    \nitem3    item4")
+            [['item1', 'item2'], ['item3', 'item4']]
+        """
+        text, number_of_columns = self.how_many_columns_needed(text)
+        # Original split
+        parts = re.split(r"(\s{2,})", text)
+
+        # Process the parts
+        result = []
+        for part in parts:
+            # Skip empty whitespace-only matches
+            if part.strip() != "":
+                if len(part.strip()) > 0:
+                    # check to see if the list is empty
+                    if len(result) > 0:
+                        # if the list is not empty, check the last last to make sure that it has room for another pair
+                        if len(result[-1]) < number_of_columns:
+                            result[-1].append(part)
+                        else:
+                            result.append([part])
+                    else:
+                        result.append([part])
+        return result
+
     def print_formatted_disk_space(
         self: t.Self,
         col_widths: dict,
         formatted_df_str: str,
         os_filter: t.Optional[str] = None,
         display_header: bool = True,
-        index_heading_justification: int = 39,
-        other_headings_justification: int = 11,
     ) -> None:
         """
         Print the formatted disk space information to the output.
@@ -177,19 +239,30 @@ class CLIOutput:
         Returns:
             None
         """
+        number_of_headings = len(col_widths)
         temp_heading = ""
         if os_filter:
+            separator_line = "=" * len(os_filter)
+            self.writeline()
+            self.writeline(separator_line)
             self.writeline(os_filter)
-            self.writeline("---------------------------------")
         if display_header:
-            if len(col_widths) > 1:
-                for headings in list(col_widths.keys()):
-                    if temp_heading:
-                        temp_heading += headings.ljust(other_headings_justification)
-                    else:
-                        temp_heading += headings.ljust(index_heading_justification)
+            if "Disk Space Range" not in formatted_df_str:
+                if number_of_headings > 2:
+                    formatted_df_str = (
+                        f"Disk Space Range    {list(col_widths.keys())[1]}    {list(col_widths.keys())[2]}   \n"
+                        + formatted_df_str
+                    )
+                    table_data = self.make_list_of_lists(formatted_df_str, number_of_headings)
+                else:
+                    formatted_df_str = f"Disk Space Range    {list(col_widths.keys())[1]}    \n" + formatted_df_str
+                    table_data = self.make_list_of_lists(formatted_df_str, 2)
+            else:
+                table_data = self.make_list_of_lists(formatted_df_str)
+            table_headers = table_data.pop(0)
+            table = tabulate(table_data, headers=table_headers)
         self.writeline(temp_heading)
-        self.writeline(formatted_df_str)
+        self.writeline(table)
         self.writeline()
 
     def print_site_usage(self: t.Self, resource_list: list, dataFrame: pd.DataFrame) -> None:
@@ -205,29 +278,28 @@ class CLIOutput:
         Returns:
             None: This function does not return a value; it prints the usage information directly to the console.
         """
+        dataFrame = dataFrame.set_index("Site Name")
         for resource in resource_list:
-            self.writeline(f"Site Wide {resource} Usage")
-            self.writeline("-------------------")
             if not dataFrame.empty:
                 match resource:
                     case "CPU":
                         cpu_usage = dataFrame["Site_CPU_Usage"].astype(int)
-                        for index, row in dataFrame.iterrows():
-                            self.writeline(f"{row['Site Name']}\t\t{cpu_usage[index]} Cores")
+                        self.writeline(self.create_site_table(cpu_usage, ["Site Name", "Core Count"]))
                     case "Memory":
                         memory_usage = dataFrame["Site_RAM_Usage"].round(0).astype(int)
-                        for index, row in dataFrame.iterrows():
-                            self.writeline(f"{row['Site Name']}\t\t{memory_usage[index]} GB")
+                        self.writeline(self.create_site_table(memory_usage, ["Site Name", "Memory Capacity (GB)"]))
                     case "Disk":
                         disk_usage = dataFrame["Site_Disk_Usage"]
-                        for index, row in dataFrame.iterrows():
-                            self.writeline(f"{row['Site Name']}\t\t{disk_usage[index]:.0f} TB")
+                        self.writeline(self.create_site_table(disk_usage, ["Site Name", "Disk Capacity (TB)"]))
                     case "VM":
                         vm_count = dataFrame["Site_VM_Count"]
-                        for index, row in dataFrame.iterrows():
-                            self.writeline(f"{row['Site Name']}\t\t{vm_count[index]} VMs")
+                        self.writeline(self.create_site_table(vm_count, ["Site Name", "VM Count"]))
                     case _:
                         self.writeline("No data available for the specified resource.")
             else:
                 self.writeline("No data available for the specified resource.")
             self.writeline("")
+
+    def create_site_table(self: t.Self, df: pd.DataFrame, headers: list) -> str:
+        table_data = [[site, f"{value}"] for site, value in df.items()]
+        return tabulate(table_data, headers=headers)

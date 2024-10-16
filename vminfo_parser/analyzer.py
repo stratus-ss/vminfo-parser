@@ -416,8 +416,6 @@ class Analyzer:
             col_widths,
             formatted_df_str,
             os_filter=os_filter,
-            index_heading_justification=column_padding["index_heading_justification"],
-            other_headings_justification=column_padding["other_headings_justification"],
         )
 
         # Call the new visualize method
