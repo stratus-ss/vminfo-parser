@@ -151,3 +151,16 @@ def test_validate_missing_env(caplog: pytest.LogCaptureFixture) -> None:
             ),
         )
     ]
+
+def test_load_column_headers_from_yaml(column_headers_yaml):
+    """Test that column headers can be loaded from a YAML file."""
+    config = Config(yaml=column_headers_yaml)
+    config._load_yaml()
+    
+    # Verify the custom headers were loaded
+    assert hasattr(config, "custom_column_headers")
+    assert "VERSION_CUSTOM" in config.custom_column_headers
+    assert config.custom_column_headers["VERSION_CUSTOM"]["environment"] == "Zone"
+    assert config.custom_column_headers["VERSION_CUSTOM"]["operatingSystemFromVMConfig"] == "Virtual Oper"
+    assert config.custom_column_headers["VERSION_CUSTOM"]["vmDisk"] == "VM Provisioned (GB)"
+    

@@ -22,10 +22,10 @@ class VMData:
     unit_type: str
     normalized: bool
 
-    def __init__(self: t.Self, df: pd.DataFrame, normalize: bool = True) -> None:
+    def __init__(self: t.Self, df: pd.DataFrame, config: dict = None, normalize: bool = True) -> None:
         self.df = df
         self.normalized = False
-
+        self.config = config
         if normalize:
             self._normalize()
         else:
@@ -135,7 +135,7 @@ class VMData:
         return pd.concat((excel_list + csv_list), ignore_index=True)
 
     @classmethod
-    def from_file(cls: type[t.Self], filepath: Path, normalize: bool = True) -> t.Self:
+    def from_file(cls: type[t.Self], filepath: Path, config: dict = None, normalize: bool = True) -> t.Self:
         """Create a VMData instance from a file or directory.
 
         Reads data from a CSV, Excel file, or a directory containing a mix of these file types.
@@ -171,7 +171,7 @@ class VMData:
             else:
                 LOGGER.critical("File passed in was neither a CSV nor an Excel file")
                 exit()
-        return cls(df, normalize)
+        return cls(df, config, normalize)
 
     def _set_column_headings(self: t.Self) -> None:
         """
@@ -183,10 +183,12 @@ class VMData:
         Raises:
             ValueError: If no matching header set is found.
         """
+        # Get combined headers from config if available, otherwise use const.COLUMN_HEADERS
+        headers_to_check = getattr(self.config, "column_headers", const.COLUMN_HEADERS) if hasattr(self, "config") and self.config else const.COLUMN_HEADERS
         best_match = None
         max_matches = 0
 
-        for version, headers in const.COLUMN_HEADERS.items():
+        for version, headers in headers_to_check.items():
             matches = 0
             for header in headers.values():
                 if header in self.df.columns:
@@ -200,7 +202,7 @@ class VMData:
 
         LOGGER.debug(f"Using VERSION_{best_match} as the closest match.")
 
-        self.column_headers = const.COLUMN_HEADERS[best_match].copy()
+        self.column_headers = headers_to_check[best_match].copy()
         self.unit_type = "GiB" if best_match == "VERSION_1" else "MiB"
 
         missing_headers = [header for header in self.column_headers.values() if header not in self.df.columns]

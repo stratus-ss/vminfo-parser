@@ -148,3 +148,35 @@ def mock_config(mocker: MockFixture) -> Generator[MockType, None, None]:
 @pytest.fixture
 def mock_vmdata(mocker: MockFixture) -> Generator[MockType, None, None]:
     yield mocker.NonCallableMagicMock(VMData)
+
+@pytest.fixture
+def column_headers_yaml(tmp_path):
+    yaml_content = """
+    breakdown-by-terabyte: false
+    file: tests/files/Site_example.xlsx
+    generate-graphs: false
+    get-disk-space-ranges: false
+    get-os-counts: false
+    get-supported-os: false
+    get-unsupported-os: false
+    minimum-count: 500
+    os-name: null
+    over-under-tb: false
+    output-os-by-version: false
+    prod-env-labels: Prod-DC2,Prod-DC1
+    show-disk-space-by-os: false
+    sort-by-env: null
+    sort-by-site: true
+    column_headers:
+        VERSION_CUSTOM:
+            operatingSystemFromVMTools: "Virtual Oper"
+            operatingSystemFromVMConfig: "Virtual Oper"
+            environment: "Zone"
+            vmMemory: "VM Ram (GB)"
+            vmDisk: "VM Provisioned (GB)"
+            vCPU: "VM vCPU"
+    """
+    yaml_file = tmp_path / "config_headers.yaml"
+    with open(yaml_file, "w") as f:
+        f.write(yaml_content)
+    yield yaml_file

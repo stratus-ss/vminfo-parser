@@ -1,11 +1,12 @@
 from collections.abc import Callable, Generator
-
+import mock
 import pytest
 from pytest_mock import MockFixture, MockType
 
 from vminfo_parser import __main__
 
 from .. import const as test_const
+
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def test_main_default(mock_main: MockType) -> None:
     mock_main.config.generate_yaml_from_parser.assert_not_called()
 
     # Assert vmdata setup
-    mock_main.vmdata_class.from_file.assert_called_once_with(mock_main.config.file)
+    mock_main.vmdata_class.from_file.assert_called_once_with(mock_main.config.file, config=mock.ANY)
 
     # Assert module setup
     mock_main.visualizer_class.assert_not_called()

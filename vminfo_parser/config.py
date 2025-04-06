@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 import typing as t
+from types import MappingProxyType
 from functools import cached_property
 from pathlib import Path
 
@@ -180,6 +181,9 @@ class Config:
         try:
             with open(self.yaml, "r") as yaml_file:
                 config_dict = yaml.safe_load(yaml_file)
+                # Extract column_headers if present
+                self.custom_column_headers = config_dict.pop("column_headers", {})
+                
                 # Convert dash-separated keys to underscore-separated keys
                 for key, value in config_dict.items():
                     new_key = key.replace("-", "_")
@@ -253,3 +257,38 @@ class Config:
     @cached_property
     def count_filter(self: t.Self) -> int | None:
         return self.minimum_count if self.minimum_count > 0 else None
+
+    @property
+    def column_headers(self: t.Self) -> dict:
+        """Get column headers, combining custom headers with defaults.
+        
+        Custom headers from YAML have precedence over defaults.
+        
+        Returns:
+            dict: Combined dictionary of column headers.
+        """
+        from . import const  # Import here to avoid circular imports
+        
+        if not hasattr(self, "custom_column_headers"):
+            return const.COLUMN_HEADERS
+        
+        combined_headers = {}
+        
+        # Start with all versions from const.COLUMN_HEADERS
+        for version, headers in const.COLUMN_HEADERS.items():
+            combined_headers[version] = dict(headers)
+        
+        # Override with custom headers
+        for version, headers in self.custom_column_headers.items():
+            if version not in combined_headers:
+                combined_headers[version] = {}
+            
+            for key, value in headers.items():
+                if value:  # Only override if value is not empty
+                    combined_headers[version][key] = value
+        
+        # Convert to MappingProxyType for consistency
+        for version in combined_headers:
+            combined_headers[version] = MappingProxyType(combined_headers[version])
+        
+        return MappingProxyType(combined_headers)
