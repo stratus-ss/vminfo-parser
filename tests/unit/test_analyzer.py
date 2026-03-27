@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from unittest.mock import NonCallableMagicMock
 
 import pandas as pd
 import pytest
@@ -151,3 +152,94 @@ def test_get_unsupported_os_counts(analyzer: Analyzer, mocker: MockFixture) -> N
 
     # Assert correct value is returned
     assert response == mock_count_df
+
+
+class TestVMDensityAnalysis:
+    """Tests for the VM density analysis methods."""
+
+    @pytest.fixture
+    def host_df(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            "Host": ["h1", "h2", "h3", "h4"],
+            "Cluster": ["C1", "C1", "C2", "C2"],
+            "# VMs": [30, 40, 55, 60],
+            "# Cores": [16, 32, 24, 48],
+            "# Memory": [128, 256, 192, 384],
+            "Site Name": ["SiteA", "SiteA", "SiteB", "SiteB"],
+        })
+
+    @pytest.fixture
+    def density_analyzer(self, mock_config: MockType, host_df: pd.DataFrame) -> Analyzer:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = host_df
+        vm_data.df = pd.DataFrame({"NICs": [1, 1, 2, 1, 3], "Site Name": ["SiteA"] * 3 + ["SiteB"] * 2})
+        return Analyzer(vm_data, mock_config)
+
+    def test_get_vm_density_by_host(self, density_analyzer: Analyzer) -> None:
+        result = density_analyzer.get_vm_density_by_host()
+        assert len(result) == 4
+        assert "# VMs" in result.columns
+        assert "Site Name" in result.columns
+
+    def test_get_vm_density_by_host_no_host_df(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = None
+        a = Analyzer(vm_data, mock_config)
+        result = a.get_vm_density_by_host()
+        assert result.empty
+
+    def test_get_vm_density_by_cluster(self, density_analyzer: Analyzer) -> None:
+        result = density_analyzer.get_vm_density_by_cluster()
+        assert len(result) == 2
+        assert "Total_VMs" in result.columns
+        assert "Avg_Density" in result.columns
+
+        c2 = result[result["Cluster"] == "C2"].iloc[0]
+        assert c2["Total_VMs"] == 115
+        assert c2["Hosts"] == 2
+
+    def test_get_vm_density_by_site(self, density_analyzer: Analyzer) -> None:
+        result = density_analyzer.get_vm_density_by_site()
+        assert len(result) == 2
+        site_b = result[result["Site Name"] == "SiteB"].iloc[0]
+        assert site_b["Total_VMs"] == 115
+        assert site_b["Total_Hosts"] == 2
+
+    def test_get_nic_distribution(self, density_analyzer: Analyzer) -> None:
+        result, zero_count = density_analyzer.get_nic_distribution()
+        assert not result.empty
+        assert "NICs" in result.columns
+        assert "Count" in result.columns
+        assert "Pct" in result.columns
+        assert zero_count == 0
+
+    def test_get_nic_distribution_no_nics_column(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = None
+        vm_data.df = pd.DataFrame({"Other": [1, 2, 3]})
+        a = Analyzer(vm_data, mock_config)
+        result, zero_count = a.get_nic_distribution()
+        assert result.empty
+        assert zero_count == 0
+
+    def test_get_nic_distribution_excludes_zero_nics(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = None
+        vm_data.df = pd.DataFrame({
+            "NICs": [0, 0, 1, 1, 2, 0],
+            "Site Name": ["S1"] * 6,
+        })
+        a = Analyzer(vm_data, mock_config)
+        result, zero_count = a.get_nic_distribution()
+        assert zero_count == 3
+        assert 0 not in result["NICs"].values
+        assert set(result["NICs"].values) == {1, 2}
+
+    def test_get_high_density_hosts(self, density_analyzer: Analyzer) -> None:
+        result = density_analyzer.get_high_density_hosts(threshold=50)
+        assert len(result) == 2
+        assert result.iloc[0]["# VMs"] == 60
+
+    def test_get_high_density_hosts_none_above(self, density_analyzer: Analyzer) -> None:
+        result = density_analyzer.get_high_density_hosts(threshold=100)
+        assert result.empty

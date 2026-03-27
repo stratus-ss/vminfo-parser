@@ -1046,6 +1046,7 @@ EXPECTED_ARGPARSE_TO_YAML = {
     "get_os_counts": False,
     "get_supported_os": False,
     "get_unsupported_os": False,
+    "get_vm_density": False,
     "minimum_count": 0,
     "os_name": None,
     "output_os_by_version": False,
@@ -1111,6 +1112,7 @@ TEST_DATAFRAMES = [
 
 MAIN_FUNCTION_CALLS = {
     "sort_by_site": ["vm_data", "cli_output"],
+    "get_vm_density": ["vm_data", "analyzer", "cli_output"],
     "show_disk_space_by_os": ["config", "analyzer", "cli_output", "visualizer"],
     "get_disk_space_ranges": ["config", "analyzer", "cli_output", "visualizer"],
     "get_os_counts": ["config", "analyzer", "cli_output", "visualizer"],

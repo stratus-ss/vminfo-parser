@@ -18,12 +18,16 @@ LOGGER = logging.getLogger(__name__)
 
 class VMData:
     df: pd.DataFrame
+    host_df: pd.DataFrame | None
+    cluster_df: pd.DataFrame | None
     column_headers: dict[str, str]
     unit_type: str
     normalized: bool
 
     def __init__(self: t.Self, df: pd.DataFrame, config: dict = None, normalize: bool = True) -> None:
         self.df = df
+        self.host_df = None
+        self.cluster_df = None
         self.normalized = False
         self.config = config
         if normalize:
@@ -84,6 +88,60 @@ class VMData:
         dialect = sniffer.sniff(sample)
         return dialect.delimiter
 
+    @staticmethod
+    def _load_extra_sheets(filepath: Path) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+        """Load vHost and vCluster sheets from an Excel file if they exist.
+
+        Args:
+            filepath (Path): Path to the Excel file.
+
+        Returns:
+            tuple: (host_df, cluster_df) — each is a DataFrame or None.
+        """
+        host_df = None
+        cluster_df = None
+        try:
+            host_df = pd.read_excel(filepath, sheet_name="vHost")
+        except (ValueError, KeyError):
+            LOGGER.debug("No vHost sheet in %s", filepath)
+        try:
+            cluster_df = pd.read_excel(filepath, sheet_name="vCluster")
+        except (ValueError, KeyError):
+            LOGGER.debug("No vCluster sheet in %s", filepath)
+        return host_df, cluster_df
+
+    @staticmethod
+    def _extract_site_name(filepath: str | Path) -> str | None:
+        """Extract site name from RVTools filename pattern.
+
+        Matches: RVTools_export_all_<date>_<time>_<SiteName>.xlsx
+
+        Args:
+            filepath (str | Path): Path to the file.
+
+        Returns:
+            str | None: Extracted site name with underscores replaced by spaces, or None.
+        """
+        filename = Path(filepath).stem
+        match = re.search(r"RVTools_export_all_\d{4}-\d{2}-\d{2}_\d+\.\d+\.\d+_(.*)", filename)
+        if match:
+            return match.group(1).replace("_", " ")
+        return None
+
+    @staticmethod
+    def _inject_site_name(df: pd.DataFrame, filepath: str | Path) -> None:
+        """Three-tier site name injection: existing column > filename extraction > no-op.
+
+        Args:
+            df (pd.DataFrame): DataFrame to inject site name into.
+            filepath (str | Path): Source file path for filename-based extraction.
+        """
+        if "Site Name" in df.columns:
+            return
+        site_name = VMData._extract_site_name(filepath)
+        if site_name:
+            df["Site Name"] = site_name
+
     @classmethod
     def build_file_list(cls: type[t.Self], file_extensions: list, file_type: str, filepath: str) -> list:
         """
@@ -112,37 +170,64 @@ class VMData:
         return temp_list
 
     @classmethod
-    def _compile_df_from_directory(cls: type[t.Self], filepath: str) -> pd.DataFrame:
-        """Compile a DataFrame from Excel and CSV files in a directory.
+    def _compile_df_from_directory(
+        cls: type[t.Self], filepath: str
+    ) -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame | None]:
+        """Compile DataFrames from Excel and CSV files in a directory.
 
         Searches the given directory for .xls, .xlsx, and .csv files, reads them into
-        pandas DataFrames, and concatenates them into a single DataFrame.
+        pandas DataFrames, and concatenates them. Also loads vHost and vCluster sheets
+        from Excel files when available, and injects site names from filenames.
 
         Args:
             filepath (str): The path to the directory containing the files.
 
         Returns:
-            pd.DataFrame: A combined DataFrame containing data from all found files.
+            tuple: (combined_df, host_df, cluster_df) where host/cluster may be None.
 
         Raises:
             SystemExit: If the directory contains neither CSV nor Excel files.
         """
-        excel_list = cls.build_file_list([".xls", ".xlsx"], "excel", filepath)
+        vinfo_dfs: list[pd.DataFrame] = []
+        host_dfs: list[pd.DataFrame] = []
+        cluster_dfs: list[pd.DataFrame] = []
+
+        for ext in [".xls", ".xlsx"]:
+            files = glob.glob(f"{filepath}/*{ext}")
+            for f in files:
+                df = pd.read_excel(f)
+                cls._inject_site_name(df, f)
+                vinfo_dfs.append(df)
+
+                host_df, cluster_df = cls._load_extra_sheets(f)
+                if host_df is not None:
+                    cls._inject_site_name(host_df, f)
+                    host_dfs.append(host_df)
+                if cluster_df is not None:
+                    cls._inject_site_name(cluster_df, f)
+                    cluster_dfs.append(cluster_df)
+
         csv_list = cls.build_file_list([".csv"], "csv", filepath)
-        if not excel_list and not csv_list:
+        if not vinfo_dfs and not csv_list:
             LOGGER.critical("Directory included neither CSV or Excel files")
             exit()
-        return pd.concat((excel_list + csv_list), ignore_index=True)
+
+        combined_df = pd.concat(vinfo_dfs + csv_list, ignore_index=True)
+        combined_host = pd.concat(host_dfs, ignore_index=True) if host_dfs else None
+        combined_cluster = pd.concat(cluster_dfs, ignore_index=True) if cluster_dfs else None
+        return combined_df, combined_host, combined_cluster
 
     @classmethod
     def from_file(cls: type[t.Self], filepath: Path, config: dict = None, normalize: bool = True) -> t.Self:
         """Create a VMData instance from a file or directory.
 
         Reads data from a CSV, Excel file, or a directory containing a mix of these file types.
-        Handles file encoding and delimiter detection for CSV files.
+        Handles file encoding and delimiter detection for CSV files. For Excel files, also
+        loads vHost and vCluster sheets when available and injects site names.
 
         Args:
             filepath (Path): The path to the file or directory.
+            config (dict, optional): Configuration object. Defaults to None.
             normalize (bool, optional): Whether to normalize the data. Defaults to True.
 
         Returns:
@@ -152,9 +237,11 @@ class VMData:
             FileNotFoundError: If the specified file does not exist.
             ValueError: If the file type is not supported.
         """
+        host_df = None
+        cluster_df = None
 
         if os.path.isdir(filepath):
-            df = cls._compile_df_from_directory(filepath)
+            df, host_df, cluster_df = cls._compile_df_from_directory(filepath)
         else:
             file_type = cls.get_file_type(filepath)
             _, file_extension = os.path.splitext(filepath)
@@ -168,10 +255,20 @@ class VMData:
                     exit()
             elif file_type in const.MIME["excel"]:
                 df = pd.read_excel(filepath)
+                host_df, cluster_df = cls._load_extra_sheets(filepath)
+                cls._inject_site_name(df, filepath)
+                if host_df is not None:
+                    cls._inject_site_name(host_df, filepath)
+                if cluster_df is not None:
+                    cls._inject_site_name(cluster_df, filepath)
             else:
                 LOGGER.critical("File passed in was neither a CSV nor an Excel file")
                 exit()
-        return cls(df, config, normalize)
+
+        instance = cls(df, config, normalize)
+        instance.host_df = host_df
+        instance.cluster_df = cluster_df
+        return instance
 
     def _set_column_headings(self: t.Self) -> None:
         """

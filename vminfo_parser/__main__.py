@@ -151,6 +151,33 @@ def sort_by_site(vm_data: VMData, cli_output: CLIOutput) -> None:
     cli_output.print_site_usage(["Memory", "CPU", "Disk", "VM"], site_dataframe)
 
 
+def get_vm_density(vm_data: VMData, analyzer: Analyzer, cli_output: CLIOutput) -> None:
+    """Generate VM density analysis from vHost data and NIC distribution from vInfo.
+
+    Args:
+        vm_data (VMData): VMData instance with host_df loaded
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+    """
+    if vm_data.host_df is None:
+        LOGGER.warning("No vHost data available. Ensure input files contain a vHost sheet.")
+        return
+
+    host_data = analyzer.get_vm_density_by_host()
+
+    site_summary = analyzer.get_vm_density_by_site(host_data)
+    cli_output.print_vm_density_summary(site_summary)
+
+    cluster_density = analyzer.get_vm_density_by_cluster(host_data)
+    cli_output.print_cluster_density(cluster_density)
+
+    high_density = analyzer.get_high_density_hosts(host_data=host_data)
+    cli_output.print_high_density_hosts(high_density)
+
+    nic_dist, zero_nic_count = analyzer.get_nic_distribution()
+    cli_output.print_nic_distribution(nic_dist, zero_nic_count)
+
+
 def main(*args: str) -> None:  # noqa: C901
     config = Config.from_args(*args)
     if config.generate_yaml:
@@ -170,6 +197,9 @@ def main(*args: str) -> None:  # noqa: C901
     match True:
         case config.sort_by_site:
             sort_by_site(vm_data, cli_output)
+
+        case config.get_vm_density:
+            get_vm_density(vm_data, analyzer, cli_output)
 
         case config.show_disk_space_by_os:
             show_disk_space_by_os(config, analyzer, cli_output, visualizer)

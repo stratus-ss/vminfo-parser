@@ -123,6 +123,13 @@ def _get_parser() -> argparse.ArgumentParser:
         help="Display a graph of the unsupported operating systems for OpenShift Virt",
     )
     parser.add_argument(
+        "--get-vm-density",
+        action="store_true",
+        default=False,
+        help="Generate VM density analysis from vHost data: VMs per host, per cluster, per site. "
+        "Requires xlsx files with vHost sheet (e.g., RVTools exports).",
+    )
+    parser.add_argument(
         "--generate-yaml",
         action="store_true",
         default=False,

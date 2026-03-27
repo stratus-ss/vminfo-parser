@@ -130,6 +130,7 @@ Currently supported headers:
 | `--show-disk-space-by-os`      | Generates disk space reports grouped by operating system.                                                                                    | `show_disk_space_by_os` function in `main.py`[4]             |
 | `--sort-by-env`              | Sorts VM data based on the environment. Accepts values such as "all", "both", or a specific environment.                                       | `VMData.create_environment_filtered_dataframe`          |
 | `--sort-by-site`             | Generates per-site statistics for resource usage (memory, CPU, disk) across VMs.                                                             | `sort_by_site` function in `main.py`                      |
+| `--get-vm-density`           | Generates VM density analysis from vHost data: VMs per host, per cluster, per site. Requires xlsx files with a vHost sheet (e.g., RVTools).  | `get_vm_density` function in `main.py`                    |
 | `--yaml`                     | Reads a YAML configuration file containing all option values instead of using individual command-line flags.                                   | `Config._load_yaml` in `config.py`                        |
 
 
@@ -145,7 +146,6 @@ For convenience, there is a `--generate-yaml` flag which will generate a YAML fi
 
 ## Examples
 
-<<<<<<< HEAD
 The repository includes sample datasets in the `tests/files/` directory. You can use these to test the tool's functionality without needing your own data:
 
 ```bash
@@ -203,6 +203,16 @@ Disk Space Range    Count
 
 ![plot](examples/Get_Disk_Space_Ranges.png)
 
+
+### Get VM Density Analysis
+
+For RVTools exports that contain a `vHost` sheet, you can generate a VM density report showing VMs per host, per cluster, and per site:
+
+```bash
+vminfo-parser --directory /path/to/rvtools/exports --get-vm-density
+```
+
+This produces a site-level density summary, per-cluster breakdown, high-density host list, and NIC distribution. Site names are automatically extracted from filenames matching the pattern `RVTools_export_all_<date>_<time>_<SiteName>.xlsx`, or from an existing `Site Name` column in the data.
 
 ### Generate YAML of All Options
 

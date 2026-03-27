@@ -4,6 +4,7 @@ import typing as t
 from collections.abc import Callable
 
 # 3rd party imports
+import numpy as np
 import pandas as pd
 
 from . import const
@@ -492,3 +493,159 @@ class Analyzer:
         """
         for os_name in self.get_unique_os_names():
             func(os_name)
+
+    def get_vm_density_by_host(self: t.Self) -> pd.DataFrame:
+        """Compute per-host VM density statistics grouped by cluster (and site if available).
+
+        Returns:
+            pd.DataFrame: Per-host data with columns from vHost plus Site Name if present.
+        """
+        host_df = self.vm_data.host_df
+        if host_df is None:
+            return pd.DataFrame()
+
+        cols = ["Host", "Cluster", "# VMs", "# Cores", "# Memory"]
+        available = [c for c in cols if c in host_df.columns]
+        result = host_df[available].copy()
+
+        if "# VMs" in result.columns:
+            result["# VMs"] = pd.to_numeric(result["# VMs"], errors="coerce").fillna(0).astype(int)
+        if "# Cores" in result.columns:
+            result["# Cores"] = pd.to_numeric(result["# Cores"], errors="coerce").fillna(0).astype(int)
+
+        if "Site Name" in host_df.columns:
+            result["Site Name"] = host_df["Site Name"]
+
+        return result
+
+    def get_vm_density_by_cluster(self: t.Self, host_data: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Aggregate host data to the cluster level with density statistics.
+
+        Args:
+            host_data (pd.DataFrame | None): Pre-computed host data. If None, calls get_vm_density_by_host().
+
+        Returns:
+            pd.DataFrame: One row per cluster with total VMs, hosts, cores, memory,
+                          and average/max/min density.
+        """
+        if host_data is None:
+            host_data = self.get_vm_density_by_host()
+        if host_data.empty or "# VMs" not in host_data.columns:
+            return pd.DataFrame()
+
+        group_cols = ["Cluster"]
+        if "Site Name" in host_data.columns:
+            group_cols = ["Site Name", "Cluster"]
+
+        grouped = host_data.groupby(group_cols, dropna=False)
+        cluster_df = grouped.agg(
+            Total_VMs=("# VMs", "sum"),
+            Hosts=("# VMs", "count"),
+            Total_Cores=("# Cores", "sum") if "# Cores" in host_data.columns else ("# VMs", "count"),
+            Avg_Density=("# VMs", "mean"),
+            Max_Density=("# VMs", "max"),
+            Min_Density=("# VMs", "min"),
+            Median_Density=("# VMs", "median"),
+        ).reset_index()
+
+        cluster_df["Avg_Density"] = cluster_df["Avg_Density"].round(1)
+        cluster_df["Median_Density"] = cluster_df["Median_Density"].round(1)
+
+        return cluster_df.sort_values(by="Total_VMs", ascending=False)
+
+    def get_vm_density_by_site(self: t.Self, host_data: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Roll up host-level density data to the site level.
+
+        Args:
+            host_data (pd.DataFrame | None): Pre-computed host data. If None, calls get_vm_density_by_host().
+
+        Returns:
+            pd.DataFrame: One row per site with totals and density statistics.
+        """
+        if host_data is None:
+            host_data = self.get_vm_density_by_host()
+        cluster_df = self.get_vm_density_by_cluster(host_data)
+        if cluster_df.empty:
+            return pd.DataFrame()
+
+        if "Site Name" not in cluster_df.columns:
+            totals = {
+                "Site Name": ["All"],
+                "Total_VMs": [cluster_df["Total_VMs"].sum()],
+                "Total_Hosts": [cluster_df["Hosts"].sum()],
+                "Total_Clusters": [len(cluster_df)],
+                "Total_Cores": [cluster_df["Total_Cores"].sum()],
+                "Avg_Density": [round(cluster_df["Total_VMs"].sum() / max(cluster_df["Hosts"].sum(), 1), 1)],
+                "Max_Density": [cluster_df["Max_Density"].max()],
+            }
+            return pd.DataFrame(totals)
+
+        site_groups = host_data.groupby("Site Name")
+
+        rows = []
+        for site, group in site_groups:
+            rows.append({
+                "Site Name": site,
+                "Total_VMs": int(group["# VMs"].sum()),
+                "Total_Hosts": len(group),
+                "Total_Clusters": group["Cluster"].nunique() if "Cluster" in group.columns else 0,
+                "Total_Cores": int(group["# Cores"].sum()) if "# Cores" in group.columns else 0,
+                "Avg_Density": round(float(group["# VMs"].mean()), 1),
+                "Max_Density": int(group["# VMs"].max()),
+            })
+
+        return pd.DataFrame(rows).sort_values(by="Total_VMs", ascending=False)
+
+    def get_nic_distribution(self: t.Self) -> tuple[pd.DataFrame, int]:
+        """Analyze NIC count distribution from vInfo data, optionally per site.
+
+        VMs with 0 NICs are excluded from the distribution and their count is
+        returned separately so callers can report them as a footnote.
+
+        Returns:
+            tuple: (distribution DataFrame, count of excluded 0-NIC VMs).
+        """
+        df = self.vm_data.df
+        if "NICs" not in df.columns:
+            return pd.DataFrame(), 0
+
+        nics = pd.to_numeric(df["NICs"], errors="coerce").dropna().astype(int)
+        if nics.empty:
+            return pd.DataFrame(), 0
+
+        zero_nic_count = int((nics == 0).sum())
+
+        if "Site Name" in df.columns:
+            nic_df = pd.DataFrame({"NICs": nics, "Site Name": df.loc[nics.index, "Site Name"]})
+            nic_df = nic_df[nic_df["NICs"] > 0]
+            result = nic_df.groupby(["Site Name", "NICs"]).size().reset_index(name="Count")
+            site_totals = result.groupby("Site Name")["Count"].transform("sum")
+            result["Pct"] = (result["Count"] / site_totals * 100).round(1)
+        else:
+            nics = nics[nics > 0]
+            counts = nics.value_counts().sort_index().reset_index()
+            counts.columns = ["NICs", "Count"]
+            counts["Pct"] = (counts["Count"] / counts["Count"].sum() * 100).round(1)
+            result = counts
+
+        return result, zero_nic_count
+
+    def get_high_density_hosts(
+        self: t.Self, threshold: int = 50, host_data: pd.DataFrame | None = None
+    ) -> pd.DataFrame:
+        """Identify hosts with VM counts exceeding a specified threshold.
+
+        Args:
+            threshold (int): Minimum VM count to flag. Defaults to 50.
+            host_data (pd.DataFrame | None): Pre-computed host data. If None, calls get_vm_density_by_host().
+
+        Returns:
+            pd.DataFrame: Hosts exceeding the threshold, sorted by VM count descending.
+        """
+        if host_data is None:
+            host_data = self.get_vm_density_by_host()
+        if host_data.empty or "# VMs" not in host_data.columns:
+            return pd.DataFrame()
+
+        high = host_data[host_data["# VMs"] >= threshold].copy()
+        return high.sort_values(by="# VMs", ascending=False)

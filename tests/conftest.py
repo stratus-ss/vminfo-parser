@@ -48,6 +48,7 @@ def config_dict(request: pytest.FixtureRequest) -> Generator[dict, None, None]:
         "get-os-counts": False,
         "get-supported-os": False,
         "get-unsupported-os": False,
+        "get-vm-density": False,
         "minimum-count": 0,
         "os-name": None,
         "over-under-tb": False,

@@ -175,3 +175,107 @@ class CLIOutput:
         """
         table_data = [[site, f"{value}"] for site, value in df.items()]
         return tabulate(table_data, headers=headers, numalign="center", tablefmt=table_format)
+
+    def print_vm_density_summary(self: t.Self, site_df: pd.DataFrame) -> None:
+        """Print site-level VM density summary table.
+
+        Args:
+            site_df (pd.DataFrame): DataFrame with site-level density statistics.
+        """
+        if site_df.empty:
+            self.writeline("No site-level density data available.")
+            return
+
+        self.writeline()
+        self.writeline("VM Density Summary by Site")
+        self.writeline("=" * 26)
+        display = site_df.rename(columns={
+            "Total_VMs": "VMs",
+            "Total_Hosts": "Hosts",
+            "Total_Clusters": "Clusters",
+            "Total_Cores": "Cores",
+            "Avg_Density": "Avg VMs/Host",
+            "Max_Density": "Max VMs/Host",
+        })
+        table = tabulate(display, headers="keys", showindex=False, numalign="center")
+        self.writeline(table)
+        self.writeline()
+
+    def print_cluster_density(self: t.Self, cluster_df: pd.DataFrame) -> None:
+        """Print per-cluster VM density breakdown.
+
+        Args:
+            cluster_df (pd.DataFrame): DataFrame with per-cluster density data.
+        """
+        if cluster_df.empty:
+            self.writeline("No cluster density data available.")
+            return
+
+        self.writeline()
+        self.writeline("VM Density by Cluster")
+        self.writeline("=" * 21)
+        display = cluster_df.rename(columns={
+            "Total_VMs": "VMs",
+            "Total_Cores": "Cores",
+            "Avg_Density": "Avg VMs/Host",
+            "Max_Density": "Max",
+            "Min_Density": "Min",
+            "Median_Density": "Median",
+        })
+        table = tabulate(display, headers="keys", showindex=False, numalign="center")
+        self.writeline(table)
+        self.writeline()
+
+    def print_high_density_hosts(self: t.Self, hosts_df: pd.DataFrame) -> None:
+        """Print hosts exceeding the high-density threshold.
+
+        Args:
+            hosts_df (pd.DataFrame): DataFrame of high-density hosts.
+        """
+        if hosts_df.empty:
+            self.writeline()
+            self.writeline("No hosts exceed the high-density threshold (50 VMs).")
+            self.writeline()
+            return
+
+        self.writeline()
+        self.writeline(f"High-Density Hosts (>= 50 VMs): {len(hosts_df)} hosts")
+        self.writeline("=" * 40)
+        display_cols = [c for c in ["Host", "Cluster", "Site Name", "# VMs", "# Cores"] if c in hosts_df.columns]
+        table = tabulate(hosts_df[display_cols], headers="keys", showindex=False, numalign="center")
+        self.writeline(table)
+        self.writeline()
+
+    def print_nic_distribution(self: t.Self, nic_df: pd.DataFrame, zero_nic_count: int = 0) -> None:
+        """Print NIC count distribution table.
+
+        Args:
+            nic_df (pd.DataFrame): DataFrame with NIC distribution data.
+            zero_nic_count (int): Number of VMs excluded due to having 0 NICs.
+        """
+        if nic_df.empty:
+            self.writeline("No NIC distribution data available.")
+            return
+
+        self.writeline()
+        self.writeline("NIC Distribution (VM count grouped by number of attached virtual NICs)")
+        self.writeline("=" * 71)
+
+        if "Site Name" in nic_df.columns:
+            for site in nic_df["Site Name"].unique():
+                site_data = nic_df[nic_df["Site Name"] == site][["NICs", "Count", "Pct"]]
+                self.writeline(f"\n{site}")
+                self.writeline("-" * len(site))
+                table = tabulate(site_data, headers="keys", showindex=False, numalign="center")
+                self.writeline(table)
+        else:
+            table = tabulate(nic_df, headers="keys", showindex=False, numalign="center")
+            self.writeline(table)
+
+        if zero_nic_count > 0:
+            self.writeline()
+            self.writeline(
+                f"Note: {zero_nic_count} VMs with 0 NICs were excluded "
+                "(likely templates or incomplete VMs)."
+            )
+        self.writeline()

@@ -108,6 +108,7 @@ def mock_config(mocker: MockFixture) -> Generator[MockType, None, None]:
         ("generate_yaml", False),
         ("generate_graphs", False),
         ("sort_by_site", False),
+        ("get_vm_density", False),
         ("show_disk_space_by_os", False),
         ("get_disk_space_ranges", False),
         ("get_os_counts", False),
