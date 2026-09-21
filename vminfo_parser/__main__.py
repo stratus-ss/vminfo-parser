@@ -87,7 +87,7 @@ def get_disk_space_ranges(
         cli_output.print_formatted_disk_space(disk_space_df, os_filter=config.os_name)
         if visualizer:
             if config.environment_filter == "all":
-                visualizer.visualize_disk_space_horizontal(disk_space_df)
+                visualizer.visualize_disk_space_horizontal(disk_space_df, os_filter=config.os_name)
             else:
                 visualizer.visualize_disk_space_vertical(disk_space_df, os_filter=config.os_name)
 
@@ -133,7 +133,7 @@ def show_disk_space_by_os(
             cli_output.print_formatted_disk_space(disk_space_df, os_filter=os_name)
             if visualizer:
                 if config.environment_filter == "all":
-                    visualizer.visualize_disk_space_horizontal(disk_space_df)
+                    visualizer.visualize_disk_space_horizontal(disk_space_df, os_filter=os_name)
                 else:
                     visualizer.visualize_disk_space_vertical(disk_space_df, os_filter=os_name)
 
@@ -178,6 +178,32 @@ def get_vm_density(vm_data: VMData, analyzer: Analyzer, cli_output: CLIOutput) -
     cli_output.print_nic_distribution(nic_dist, zero_nic_count)
 
 
+def get_overcommit(vm_data: VMData, analyzer: Analyzer, cli_output: CLIOutput) -> None:
+    """Calculate and display CPU/memory overcommit ratios at host, cluster, and site levels.
+
+    Args:
+        vm_data (VMData): VMData instance with host_df loaded
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+    """
+    if vm_data.host_df is None:
+        LOGGER.warning("No vHost data available. Ensure input files contain a vHost sheet.")
+        return
+
+    host_data = analyzer.get_overcommit_by_host()
+    if host_data.empty:
+        LOGGER.warning("Could not compute overcommit. Ensure vHost has '# Cores' and vInfo has 'Host' column.")
+        return
+
+    site_summary = analyzer.get_overcommit_by_site(host_data)
+    cli_output.print_overcommit_by_site(site_summary)
+
+    cluster_summary = analyzer.get_overcommit_by_cluster(host_data)
+    cli_output.print_overcommit_by_cluster(cluster_summary)
+
+    cli_output.print_overcommit_by_host(host_data)
+
+
 def main(*args: str) -> None:  # noqa: C901
     config = Config.from_args(*args)
     if config.generate_yaml:
@@ -190,7 +216,7 @@ def main(*args: str) -> None:  # noqa: C901
 
     visualizer: Visualizer | None = None
     if config.generate_graphs:
-        visualizer = Visualizer()
+        visualizer = Visualizer(config)
     cli_output = CLIOutput()
     analyzer = Analyzer(vm_data, config)
 
@@ -200,6 +226,9 @@ def main(*args: str) -> None:  # noqa: C901
 
         case config.get_vm_density:
             get_vm_density(vm_data, analyzer, cli_output)
+
+        case config.get_overcommit:
+            get_overcommit(vm_data, analyzer, cli_output)
 
         case config.show_disk_space_by_os:
             show_disk_space_by_os(config, analyzer, cli_output, visualizer)

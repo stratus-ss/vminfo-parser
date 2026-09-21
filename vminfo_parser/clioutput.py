@@ -246,6 +246,48 @@ class CLIOutput:
         self.writeline(table)
         self.writeline()
 
+    _OVERCOMMIT_RENAME = {
+        "Total_VMs": "VMs",
+        "VM_Count": "VMs",
+        "Total_vCPU": "Alloc vCPU",
+        "Physical_Cores": "Phys Cores",
+        "# Cores": "Phys Cores",
+        "CPU_Overcommit": "CPU Ratio",
+        "Total_VM_Memory_GiB": "Alloc Mem GiB",
+        "Physical_Memory_GiB": "Phys Mem GiB",
+        "Mem_Overcommit": "Mem Ratio",
+    }
+
+    def _print_overcommit_table(self: t.Self, df: pd.DataFrame, title: str, columns: list[str]) -> None:
+        if df.empty:
+            self.writeline(f"No {title.lower()} data available.")
+            return
+        self.writeline()
+        self.writeline(title)
+        self.writeline("=" * len(title))
+        present = [c for c in columns if c in df.columns]
+        display = df[present].rename(columns=self._OVERCOMMIT_RENAME)
+        self.writeline(tabulate(display, headers="keys", showindex=False, numalign="center", floatfmt=".2f"))
+        self.writeline()
+
+    def print_overcommit_by_site(self: t.Self, site_df: pd.DataFrame) -> None:
+        self._print_overcommit_table(site_df, "CPU/Memory Overcommit by Site", [
+            "Site Name", "Hosts", "Total_VMs", "Total_vCPU", "Physical_Cores",
+            "CPU_Overcommit", "Total_VM_Memory_GiB", "Physical_Memory_GiB", "Mem_Overcommit",
+        ])
+
+    def print_overcommit_by_cluster(self: t.Self, cluster_df: pd.DataFrame) -> None:
+        self._print_overcommit_table(cluster_df, "CPU/Memory Overcommit by Cluster", [
+            "Site Name", "Cluster", "Hosts", "Total_VMs", "Total_vCPU", "Physical_Cores",
+            "CPU_Overcommit", "Total_VM_Memory_GiB", "Physical_Memory_GiB", "Mem_Overcommit",
+        ])
+
+    def print_overcommit_by_host(self: t.Self, host_df: pd.DataFrame) -> None:
+        self._print_overcommit_table(host_df, "CPU/Memory Overcommit by Host", [
+            "Host", "Cluster", "Site Name", "VM_Count", "Total_vCPU", "# Cores",
+            "CPU_Overcommit", "Total_VM_Memory_GiB", "Physical_Memory_GiB", "Mem_Overcommit",
+        ])
+
     def print_nic_distribution(self: t.Self, nic_df: pd.DataFrame, zero_nic_count: int = 0) -> None:
         """Print NIC count distribution table.
 

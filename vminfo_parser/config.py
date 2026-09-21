@@ -53,7 +53,16 @@ def _get_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Choose whether or not to output visual graphs. "
-        "If this option is not set, a text table will be outputted to the terminal",
+        "If this option is not set, a text table will be outputted to the terminal. "
+        "Use --graph-output-dir to write PNG files instead of displaying them.",
+    )
+    parser.add_argument(
+        "--graph-output-dir",
+        type=Path,
+        default=None,
+        help="Directory to write graphs as PNG files instead of displaying them. "
+        "Filenames match the report being run; per-OS reports get one file per OS. "
+        "Requires --generate-graphs.",
     )
     parser.add_argument(
         "--get-disk-space-ranges",
@@ -130,6 +139,13 @@ def _get_parser() -> argparse.ArgumentParser:
         "Requires xlsx files with vHost sheet (e.g., RVTools exports).",
     )
     parser.add_argument(
+        "--get-overcommit",
+        action="store_true",
+        default=False,
+        help="Calculate CPU and memory overcommit ratios per host, cluster, and site. "
+        "Requires xlsx files with vHost sheet containing '# Cores' column.",
+    )
+    parser.add_argument(
         "--generate-yaml",
         action="store_true",
         default=False,
@@ -194,7 +210,7 @@ class Config:
                 # Convert dash-separated keys to underscore-separated keys
                 for key, value in config_dict.items():
                     new_key = key.replace("-", "_")
-                    new_value = Path(value) if new_key == "file" else value
+                    new_value = Path(value) if new_key in {"file", "graph_output_dir"} and value else value
                     if getattr(self, new_key, None):
                         LOGGER.warning(f"Ignoring {new_key} from yaml, already set.")
                     else:
@@ -228,6 +244,10 @@ class Config:
             )
             exit(1)
 
+        if getattr(self, "graph_output_dir", None) and not self.generate_graphs:
+            LOGGER.warning("--graph-output-dir has no effect without --generate-graphs")
+            self.graph_output_dir = None
+
     def generate_yaml_from_parser(self: t.Self, file_path: str | None = None) -> None:
         """
         Generate a YAML file containing all arguments from the given ArgumentParser.
@@ -240,9 +260,10 @@ class Config:
             file_path = "parser_arguments.yaml"
         config_data_attributes = {}
         for attr in _get_parser().parse_args(args=()).__dict__.keys():
-            if attr == "file":
-                config_data_attributes[attr] = str(getattr(self, attr))
-            elif attr in ["yaml", "generate_yaml"]:
+            if attr in {"file", "graph_output_dir"}:
+                value = getattr(self, attr)
+                config_data_attributes[attr] = str(value) if value is not None else None
+            elif attr in {"yaml", "generate_yaml"}:
                 continue
             else:
                 config_data_attributes[attr] = getattr(self, attr)

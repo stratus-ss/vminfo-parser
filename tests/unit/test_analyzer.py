@@ -243,3 +243,147 @@ class TestVMDensityAnalysis:
     def test_get_high_density_hosts_none_above(self, density_analyzer: Analyzer) -> None:
         result = density_analyzer.get_high_density_hosts(threshold=100)
         assert result.empty
+
+
+class TestOvercommitAnalysis:
+    """Tests for CPU/memory overcommit analysis methods."""
+
+    @pytest.fixture
+    def host_df(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            "Host": ["h1", "h2", "h3"],
+            "Cluster": ["C1", "C1", "C2"],
+            "# Cores": [16, 32, 24],
+            "# Memory": [131072, 262144, 196608],
+            "Site Name": ["SiteA", "SiteA", "SiteB"],
+        })
+
+    @pytest.fixture
+    def vm_df(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            "Host": ["h1", "h1", "h1", "h2", "h2", "h3", "h3", "h3", "h3"],
+            "CPUs": [4, 4, 8, 8, 8, 4, 4, 4, 4],
+            "Memory": [4096, 4096, 8192, 16384, 16384, 2048, 2048, 2048, 2048],
+            "OS according to the configuration file": ["Win"] * 9,
+            "OS according to the VMware Tools": ["Win"] * 9,
+            "Environment": ["Prod"] * 9,
+            "Provisioned MiB": [100] * 9,
+        })
+
+    @pytest.fixture
+    def overcommit_analyzer(self, mock_config: MockType, host_df: pd.DataFrame, vm_df: pd.DataFrame) -> Analyzer:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = host_df
+        vm_data.df = vm_df
+        vm_data.column_headers = {"vCPU": "CPUs", "vmMemory": "Memory"}
+        return Analyzer(vm_data, mock_config)
+
+    def test_overcommit_by_host(self, overcommit_analyzer: Analyzer) -> None:
+        result = overcommit_analyzer.get_overcommit_by_host()
+        assert len(result) == 3
+
+        h1 = result[result["Host"] == "h1"].iloc[0]
+        assert h1["Total_vCPU"] == 16
+        assert h1["# Cores"] == 16
+        assert h1["CPU_Overcommit"] == 1.0
+        # h1: 3 VMs with Memory [4096, 4096, 8192] = 16384 MiB = 16 GiB
+        # h1 physical: 131072 MB = 128 GiB
+        assert h1["Total_VM_Memory_GiB"] == 16384
+        assert h1["Physical_Memory_GiB"] == 128.0
+        assert h1["Mem_Overcommit"] == round(16384 / 128.0, 2)
+
+        h2 = result[result["Host"] == "h2"].iloc[0]
+        assert h2["Total_vCPU"] == 16
+        assert h2["CPU_Overcommit"] == 0.5
+
+        h3 = result[result["Host"] == "h3"].iloc[0]
+        assert h3["Total_vCPU"] == 16
+        assert round(h3["CPU_Overcommit"], 2) == 0.67
+
+    def test_overcommit_by_host_no_host_df(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = None
+        a = Analyzer(vm_data, mock_config)
+        assert a.get_overcommit_by_host().empty
+
+    def test_overcommit_by_host_missing_cores(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = pd.DataFrame({"Host": ["h1"], "Cluster": ["C1"]})
+        vm_data.df = pd.DataFrame({"Host": ["h1"], "CPUs": [4]})
+        vm_data.column_headers = {"vCPU": "CPUs"}
+        a = Analyzer(vm_data, mock_config)
+        assert a.get_overcommit_by_host().empty
+
+    def test_overcommit_by_host_missing_host_in_vinfo(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = pd.DataFrame({"Host": ["h1"], "# Cores": [16]})
+        vm_data.df = pd.DataFrame({"CPUs": [4]})
+        vm_data.column_headers = {"vCPU": "CPUs"}
+        a = Analyzer(vm_data, mock_config)
+        assert a.get_overcommit_by_host().empty
+
+    def test_overcommit_by_cluster(self, overcommit_analyzer: Analyzer) -> None:
+        result = overcommit_analyzer.get_overcommit_by_cluster()
+        assert len(result) == 2
+        assert "CPU_Overcommit" in result.columns
+
+        c1 = result[result["Cluster"] == "C1"].iloc[0]
+        assert c1["Total_vCPU"] == 32
+        assert c1["Physical_Cores"] == 48
+        assert round(c1["CPU_Overcommit"], 2) == 0.67
+
+        c2 = result[result["Cluster"] == "C2"].iloc[0]
+        assert c2["Total_vCPU"] == 16
+        assert c2["Physical_Cores"] == 24
+        assert round(c2["CPU_Overcommit"], 2) == 0.67
+
+    def test_overcommit_by_site(self, overcommit_analyzer: Analyzer) -> None:
+        result = overcommit_analyzer.get_overcommit_by_site()
+        assert len(result) == 2
+        assert "CPU_Overcommit" in result.columns
+
+        site_a = result[result["Site Name"] == "SiteA"].iloc[0]
+        assert site_a["Total_vCPU"] == 32
+        assert site_a["Physical_Cores"] == 48
+        assert round(site_a["CPU_Overcommit"], 2) == 0.67
+
+    def test_overcommit_by_site_no_site_column(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = pd.DataFrame({
+            "Host": ["h1", "h2"],
+            "Cluster": ["C1", "C1"],
+            "# Cores": [16, 32],
+            "# Memory": [131072, 262144],
+        })
+        vm_data.df = pd.DataFrame({
+            "Host": ["h1", "h2"],
+            "CPUs": [8, 16],
+            "Memory": [4096, 8192],
+        })
+        vm_data.column_headers = {"vCPU": "CPUs", "vmMemory": "Memory"}
+        a = Analyzer(vm_data, mock_config)
+        result = a.get_overcommit_by_site()
+        assert len(result) == 1
+        assert result.iloc[0]["Site Name"] == "All"
+        assert result.iloc[0]["Total_vCPU"] == 24
+        assert result.iloc[0]["Physical_Cores"] == 48
+        assert result.iloc[0]["CPU_Overcommit"] == 0.5
+
+    def test_overcommit_host_with_zero_vms(self, mock_config: MockType) -> None:
+        vm_data = NonCallableMagicMock()
+        vm_data.host_df = pd.DataFrame({
+            "Host": ["h1", "h2"],
+            "Cluster": ["C1", "C1"],
+            "# Cores": [16, 32],
+        })
+        vm_data.df = pd.DataFrame({
+            "Host": ["h1"],
+            "CPUs": [8],
+        })
+        vm_data.column_headers = {"vCPU": "CPUs"}
+        a = Analyzer(vm_data, mock_config)
+        result = a.get_overcommit_by_host()
+        assert len(result) == 2
+        h2 = result[result["Host"] == "h2"].iloc[0]
+        assert h2["Total_vCPU"] == 0
+        assert h2["CPU_Overcommit"] == 0.0

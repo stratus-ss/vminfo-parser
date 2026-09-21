@@ -61,7 +61,9 @@ def test_cli_yaml_and_args(capsys: pytest.CaptureFixture, caplog: pytest.LogCapt
         ("vminfo_parser.config", logging.ERROR, "When using --yaml, no other arguments should be provided.")
     ]
     assert "usage:" in output.err
-    assert "[-h] [--file FILE | --yaml YAML | --directory DIRECTORY]" in output.err
+    assert "--file FILE" in output.err
+    assert "--yaml YAML" in output.err
+    assert "--directory DIRECTORY" in output.err
 
 
 def test_yaml_from_args(config_dict: dict, yaml_config: str) -> None:
@@ -163,4 +165,27 @@ def test_load_column_headers_from_yaml(column_headers_yaml):
     assert config.custom_column_headers["VERSION_CUSTOM"]["environment"] == "Zone"
     assert config.custom_column_headers["VERSION_CUSTOM"]["operatingSystemFromVMConfig"] == "Virtual Oper"
     assert config.custom_column_headers["VERSION_CUSTOM"]["vmDisk"] == "VM Provisioned (GB)"
+
+
+def test_graph_output_dir_from_args(tmp_path: pathlib.Path) -> None:
+    config_obj = Config.from_args(
+        "--file", "test.csv",
+        "--generate-graphs",
+        "--graph-output-dir", str(tmp_path),
+    )
+    assert config_obj.graph_output_dir == tmp_path
+    assert isinstance(config_obj.graph_output_dir, pathlib.Path)
+
+
+def test_graph_output_dir_without_generate_graphs(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    config_obj = Config.from_args(
+        "--file", "test.csv",
+        "--graph-output-dir", str(tmp_path),
+    )
+    assert config_obj.graph_output_dir is None
+    assert caplog.record_tuples == [
+        ("vminfo_parser.config", logging.WARNING, "--graph-output-dir has no effect without --generate-graphs")
+    ]
     

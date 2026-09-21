@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -6,6 +7,7 @@ import pytest
 from matplotlib import pyplot as plt
 
 from vminfo_parser import const as vm_const
+from vminfo_parser.config import Config
 from vminfo_parser.visualizer import Visualizer, plotter
 
 
@@ -119,3 +121,57 @@ def test_visualize_supported_os_distribution(
     visualizer: Visualizer, supported_os_count_series: pd.Series
 ) -> plt.Figure:
     return visualizer.visualize_supported_os_distribution(supported_os_count_series)
+
+
+def test_plotter_saves_named_graph_per_os(
+    tmp_path: Path,
+    disk_range_counts_df: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(show_disk_space_by_os=True, graph_output_dir=tmp_path))
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df, os_filter="Windows Server 2019")
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df, os_filter="Ubuntu 20.04")
+
+    assert (tmp_path / "show-disk-space-by-os-Windows-Server-2019.png").is_file()
+    assert (tmp_path / "show-disk-space-by-os-Ubuntu-20-04.png").is_file()
+
+
+def test_plotter_saves_os_by_version_named_per_os(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(output_os_by_version=True, graph_output_dir=tmp_path))
+    data = pd.DataFrame({"OS Version": ["7", "8"], "Count": [10, 20]})
+    visualizer.visualize_os_version_distribution(data, os_name="Red Hat Enterprise Linux")
+    visualizer.visualize_os_version_distribution(data, os_name="Windows")
+
+    assert (tmp_path / "output-os-by-version-Red-Hat-Enterprise-Linux.png").is_file()
+    assert (tmp_path / "output-os-by-version-Windows.png").is_file()
+
+
+def test_plotter_saves_report_name_without_os(
+    tmp_path: Path,
+    all_os_count_series: pd.Series,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(get_os_counts=True, graph_output_dir=tmp_path))
+    visualizer.visualize_os_distribution(all_os_count_series)
+
+    assert (tmp_path / "get-os-counts.png").is_file()
+
+
+def test_plotter_avoids_filename_collision(
+    tmp_path: Path,
+    disk_range_counts_df: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(show_disk_space_by_os=True, graph_output_dir=tmp_path))
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df, os_filter="Ubuntu")
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df, os_filter="Ubuntu")
+
+    assert (tmp_path / "show-disk-space-by-os-Ubuntu.png").is_file()
+    assert (tmp_path / "show-disk-space-by-os-Ubuntu-2.png").is_file()

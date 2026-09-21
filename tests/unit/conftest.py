@@ -107,8 +107,10 @@ def mock_config(mocker: MockFixture) -> Generator[MockType, None, None]:
     for prop, val in [
         ("generate_yaml", False),
         ("generate_graphs", False),
+        ("graph_output_dir", None),
         ("sort_by_site", False),
         ("get_vm_density", False),
+        ("get_overcommit", False),
         ("show_disk_space_by_os", False),
         ("get_disk_space_ranges", False),
         ("get_os_counts", False),
@@ -156,6 +158,7 @@ def column_headers_yaml(tmp_path):
     breakdown-by-terabyte: false
     file: tests/files/Site_example.xlsx
     generate-graphs: false
+    graph-output-dir: null
     get-disk-space-ranges: false
     get-os-counts: false
     get-supported-os: false

@@ -91,7 +91,7 @@ def test_main_generate_yaml(mock_main: MockType) -> None:
 def test_main_generate_graphs(mock_main: MockType) -> None:
     mock_main.config.generate_graphs = True
     __main__.main()
-    mock_main.visualizer_class.assert_called_once()
+    mock_main.visualizer_class.assert_called_once_with(mock_main.config)
 
 
 @pytest.mark.parametrize(
@@ -235,8 +235,8 @@ def test_show_disk_space_by_os_all_env(
     __main__.show_disk_space_by_os(mock_config, mock_analyzer, mock_clioutput, mock_visualizer)
     mock_visualizer.visualize_disk_space_horizontal.assert_has_calls(
         [
-            ((expected_df,), {}),
-            ((expected_df,), {}),
+            ((expected_df,), {"os_filter": "os1"}),
+            ((expected_df,), {"os_filter": "os2"}),
         ]
     )
     mock_visualizer.visualize_disk_space_vertical.assert_not_called()
@@ -324,4 +324,6 @@ def test_get_disk_space_ranges_all_env(
         mock_analyzer.get_disk_space.return_value, os_filter=mock_config.os_name
     )
     mock_visualizer.visualize_disk_space_vertical.assert_not_called
-    mock_visualizer.visualize_disk_space_horizontal.assert_called_once_with(mock_analyzer.get_disk_space.return_value)
+    mock_visualizer.visualize_disk_space_horizontal.assert_called_once_with(
+        mock_analyzer.get_disk_space.return_value, os_filter=mock_config.os_name
+    )

@@ -630,6 +630,165 @@ class Analyzer:
 
         return result, zero_nic_count
 
+    def _build_overcommit_by_host(self: t.Self) -> pd.DataFrame:
+        """Build per-host overcommit data by joining VM allocations with physical host resources.
+
+        Joins vInfo VM-level data (grouped by Host) with vHost physical data to produce
+        a DataFrame with allocated vs physical CPU and memory per host.
+
+        Returns:
+            pd.DataFrame: Per-host data with columns for allocated/physical CPU and memory,
+                          plus overcommit ratios. Empty DataFrame if prerequisites are missing.
+        """
+        host_df = self.vm_data.host_df
+        if host_df is None or "# Cores" not in host_df.columns:
+            return pd.DataFrame()
+
+        vm_df = self.vm_data.df
+        if "Host" not in vm_df.columns:
+            return pd.DataFrame()
+
+        cpu_col = self.vm_data.column_headers.get("vCPU")
+        mem_col = self.vm_data.column_headers.get("vmMemory")
+        if not cpu_col or cpu_col not in vm_df.columns:
+            return pd.DataFrame()
+
+        vm_agg = {"Total_vCPU": (cpu_col, "sum"), "VM_Count": (cpu_col, "count")}
+        if mem_col and mem_col in vm_df.columns:
+            vm_agg["Total_VM_Memory_GiB"] = (mem_col, "sum")
+
+        vm_per_host = vm_df.groupby("Host").agg(**vm_agg).reset_index()
+
+        host_cols = ["Host"]
+        for c in ["Cluster", "# Cores", "# Memory", "Site Name"]:
+            if c in host_df.columns:
+                host_cols.append(c)
+        hosts = host_df[host_cols].copy()
+        hosts["# Cores"] = pd.to_numeric(hosts["# Cores"], errors="coerce").fillna(0).astype(int)
+        if "# Memory" in hosts.columns:
+            hosts["Physical_Memory_GiB"] = (
+                pd.to_numeric(hosts["# Memory"], errors="coerce").fillna(0) / 1024
+            ).round(1)
+
+        merged = hosts.merge(vm_per_host, on="Host", how="left").fillna(0)
+        merged["Total_vCPU"] = merged["Total_vCPU"].astype(int)
+        merged["VM_Count"] = merged["VM_Count"].astype(int)
+
+        merged["CPU_Overcommit"] = (merged["Total_vCPU"] / merged["# Cores"].replace(0, pd.NA)).round(2)
+        if "Physical_Memory_GiB" in merged.columns and "Total_VM_Memory_GiB" in merged.columns:
+            merged["Total_VM_Memory_GiB"] = merged["Total_VM_Memory_GiB"].round(1)
+            merged["Mem_Overcommit"] = (
+                merged["Total_VM_Memory_GiB"] / merged["Physical_Memory_GiB"].replace(0, pd.NA)
+            ).round(2)
+
+        return merged
+
+    def get_overcommit_by_host(self: t.Self) -> pd.DataFrame:
+        """Return per-host CPU (and memory) overcommit ratios.
+
+        Returns:
+            pd.DataFrame: One row per host with allocation, physical, and ratio columns.
+        """
+        return self._build_overcommit_by_host()
+
+    def get_overcommit_by_cluster(self: t.Self, host_data: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Aggregate overcommit data to the cluster level.
+
+        Args:
+            host_data: Pre-computed per-host overcommit data. Computed if None.
+
+        Returns:
+            pd.DataFrame: One row per cluster with summed allocations and ratios.
+        """
+        if host_data is None:
+            host_data = self._build_overcommit_by_host()
+        if host_data.empty:
+            return pd.DataFrame()
+
+        group_cols = ["Cluster"] if "Cluster" in host_data.columns else []
+        if "Site Name" in host_data.columns and "Cluster" in host_data.columns:
+            group_cols = ["Site Name", "Cluster"]
+        if not group_cols:
+            return pd.DataFrame()
+
+        agg_dict = {
+            "Hosts": ("Host", "count"),
+            "Total_vCPU": ("Total_vCPU", "sum"),
+            "Physical_Cores": ("# Cores", "sum"),
+            "Total_VMs": ("VM_Count", "sum"),
+        }
+        if "Physical_Memory_GiB" in host_data.columns:
+            agg_dict["Total_VM_Memory_GiB"] = ("Total_VM_Memory_GiB", "sum")
+            agg_dict["Physical_Memory_GiB"] = ("Physical_Memory_GiB", "sum")
+
+        result = host_data.groupby(group_cols, dropna=False).agg(**agg_dict).reset_index()
+        result["CPU_Overcommit"] = (result["Total_vCPU"] / result["Physical_Cores"].replace(0, pd.NA)).round(2)
+        if "Physical_Memory_GiB" in result.columns:
+            result["Total_VM_Memory_GiB"] = result["Total_VM_Memory_GiB"].round(1)
+            result["Physical_Memory_GiB"] = result["Physical_Memory_GiB"].round(1)
+            result["Mem_Overcommit"] = (
+                result["Total_VM_Memory_GiB"] / result["Physical_Memory_GiB"].replace(0, pd.NA)
+            ).round(2)
+
+        return result.sort_values(by="Total_vCPU", ascending=False)
+
+    def get_overcommit_by_site(self: t.Self, host_data: pd.DataFrame | None = None) -> pd.DataFrame:
+        """Aggregate overcommit data to the site level.
+
+        Args:
+            host_data: Pre-computed per-host overcommit data. Computed if None.
+
+        Returns:
+            pd.DataFrame: One row per site with summed allocations and ratios.
+        """
+        if host_data is None:
+            host_data = self._build_overcommit_by_host()
+        if host_data.empty:
+            return pd.DataFrame()
+
+        if "Site Name" not in host_data.columns:
+            agg_dict = {
+                "Hosts": ("Host", "count"),
+                "Total_vCPU": ("Total_vCPU", "sum"),
+                "Physical_Cores": ("# Cores", "sum"),
+                "Total_VMs": ("VM_Count", "sum"),
+            }
+            if "Physical_Memory_GiB" in host_data.columns:
+                agg_dict["Total_VM_Memory_GiB"] = ("Total_VM_Memory_GiB", "sum")
+                agg_dict["Physical_Memory_GiB"] = ("Physical_Memory_GiB", "sum")
+
+            totals = {}
+            totals["Site Name"] = "All"
+            for key, (col, func) in agg_dict.items():
+                totals[key] = getattr(host_data[col], func)()
+            row = pd.DataFrame([totals])
+            row["CPU_Overcommit"] = (row["Total_vCPU"] / row["Physical_Cores"].replace(0, pd.NA)).round(2)
+            if "Physical_Memory_GiB" in row.columns:
+                row["Mem_Overcommit"] = (
+                    row["Total_VM_Memory_GiB"] / row["Physical_Memory_GiB"].replace(0, pd.NA)
+                ).round(2)
+            return row
+
+        rows = []
+        for site, group in host_data.groupby("Site Name"):
+            row = {
+                "Site Name": site,
+                "Hosts": len(group),
+                "Total_vCPU": int(group["Total_vCPU"].sum()),
+                "Physical_Cores": int(group["# Cores"].sum()),
+                "Total_VMs": int(group["VM_Count"].sum()),
+            }
+            phys_cores = row["Physical_Cores"]
+            row["CPU_Overcommit"] = round(row["Total_vCPU"] / phys_cores, 2) if phys_cores else None
+            if "Physical_Memory_GiB" in group.columns:
+                row["Total_VM_Memory_GiB"] = round(float(group["Total_VM_Memory_GiB"].sum()), 1)
+                row["Physical_Memory_GiB"] = round(float(group["Physical_Memory_GiB"].sum()), 1)
+                phys_mem = row["Physical_Memory_GiB"]
+                row["Mem_Overcommit"] = round(row["Total_VM_Memory_GiB"] / phys_mem, 2) if phys_mem else None
+            rows.append(row)
+
+        return pd.DataFrame(rows).sort_values(by="Total_vCPU", ascending=False)
+
     def get_high_density_hosts(
         self: t.Self, threshold: int = 50, host_data: pd.DataFrame | None = None
     ) -> pd.DataFrame:

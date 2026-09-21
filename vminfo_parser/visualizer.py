@@ -1,8 +1,11 @@
 import logging
 import math
+import re
 import typing as t
 from collections.abc import Callable, Iterable
+from pathlib import Path
 
+import matplotlib
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -16,6 +19,18 @@ from . import config, const
 
 LOGGER = logging.getLogger(__name__)
 
+# CLI flags that produce graphs, in the same priority as main()'s match.
+_GRAPH_REPORT_FLAGS = (
+    "show_disk_space_by_os",
+    "get_disk_space_ranges",
+    "over_under_tb",
+    "breakdown_by_terabyte",
+    "get_os_counts",
+    "output_os_by_version",
+    "get_supported_os",
+    "get_unsupported_os",
+)
+
 
 # Parameter Specification for methods that use the plotter decorator
 # NOTE: VSCode Pylance extention does not properly display type hints for ParamSpec
@@ -27,7 +42,13 @@ def plotter(func: Callable[PlotterParam, None]) -> Callable[PlotterParam, Figure
     """Decorate functions that use matplotlib.pyplot to create graphs.
 
     Allows for different output methods depending on external variables.
-    Currently only implemented option is returning the figure in testing, and showing the figure interactively.
+    Returns the figure in testing, writes PNG files when graph_output_dir is set,
+    otherwise shows the figure interactively.
+
+    Note:
+        This decorator expects the wrapped function to be an instance method on
+        Visualizer (i.e. ``args[0]`` is ``self``).  It reads ``self.config`` to
+        determine the output directory and report name.
 
     Args:
         func (Callable[PlotterParam, None]): Function or Method being wrapped
@@ -64,7 +85,14 @@ def plotter(func: Callable[PlotterParam, None]) -> Callable[PlotterParam, Figure
         if config._IS_TEST:
             return figure
 
-        # TODO: add support for saving to file
+        output_dir = _graph_output_dir(args)
+        if output_dir is not None:
+            path = _unique_graph_path(output_dir, _graph_filename(args, kwargs))
+            figure.savefig(path, bbox_inches="tight")
+            LOGGER.info("Wrote graph to %s", path)
+            plt.close()
+            return None
+
         plt.show(block=True)
         plt.close()
         return None
@@ -72,19 +100,80 @@ def plotter(func: Callable[PlotterParam, None]) -> Callable[PlotterParam, Figure
     return plot_wrapper
 
 
+def _slug(value: str) -> str:
+    """Turn a report or OS label into a filesystem-safe filename fragment."""
+    slug = re.sub(r"[^\w]+", "-", value.strip())
+    return slug.strip("-") or "unknown"
+
+
+def _report_name(cfg: config.Config | None) -> str:
+    """CLI flag currently producing graphs, e.g. show-disk-space-by-os."""
+    if cfg is None:
+        return "graph"
+    for flag in _GRAPH_REPORT_FLAGS:
+        if getattr(cfg, flag, False):
+            return flag.replace("_", "-")
+    return "graph"
+
+
+def _visualizer_config(args: tuple[object, ...]) -> config.Config | None:
+    if args and isinstance(args[0], Visualizer):
+        return args[0].config
+    return None
+
+
+def _graph_output_dir(args: tuple[object, ...]) -> Path | None:
+    cfg = _visualizer_config(args)
+    output_dir = getattr(cfg, "graph_output_dir", None) if cfg is not None else None
+    return Path(output_dir) if output_dir else None
+
+
+def _graph_filename(args: tuple[object, ...], kwargs: dict[str, object]) -> str:
+    """Build a PNG filename from the report flag and optional OS label."""
+    report = _report_name(_visualizer_config(args))
+    os_label = kwargs.get("os_filter") or kwargs.get("os_name")
+    if isinstance(os_label, str) and os_label.strip():
+        return f"{report}-{_slug(os_label)}.png"
+    return f"{report}.png"
+
+
+def _unique_graph_path(directory: Path, filename: str) -> Path:
+    """Return a path in *directory* for *filename*, appending a numeric suffix to avoid collisions."""
+    path = directory / filename
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    for index in range(2, 10001):
+        candidate = directory / f"{stem}-{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not find a unique filename for {filename} in {directory} after 10000 attempts")
+
+
 class Visualizer:
-    def __init__(self: t.Self) -> None:
-        pass
+    def __init__(self: t.Self, cfg: config.Config | None = None) -> None:
+        self.config = cfg
+        output_dir = getattr(cfg, "graph_output_dir", None) if cfg is not None else None
+        if output_dir:
+            # NOTE: matplotlib.use() is process-global and irreversible. This is
+            # safe because a single Visualizer is created per CLI invocation, but
+            # callers that mix interactive and file-output Visualizers in the same
+            # process should be aware of this constraint.
+            matplotlib.use("Agg", force=True)
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     @plotter
     def visualize_disk_space_horizontal(
         self: t.Self,
         dataFrame: pd.DataFrame,
+        os_filter: str | None = None,
     ) -> None:
         """Create horizontal bar chart for disk space.
 
         Args:
             dataFrame (pd.DataFrame): dataframe with Disk Space Counts
+            os_filter (str | None, optional): OS name for plot title and filename. Defaults to None.
         """
         # Create a subplot for plotting
         fig, ax = plt.subplots()
@@ -103,7 +192,7 @@ class Visualizer:
         plt.xlabel("Number of VMs")
         ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
 
-        plt.title("Hard Drive Space Breakdown for Organization")
+        plt.title(f'Hard Drive Space Breakdown for Organization{f" for {os_filter}" if os_filter else ""}')
 
     @plotter
     def visualize_disk_space_vertical(
