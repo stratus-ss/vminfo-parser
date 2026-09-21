@@ -19,17 +19,13 @@ from . import config, const
 
 LOGGER = logging.getLogger(__name__)
 
-# CLI flags that produce graphs, in the same priority as main()'s match.
-_GRAPH_REPORT_FLAGS = (
-    "show_disk_space_by_os",
-    "get_disk_space_ranges",
-    "over_under_tb",
-    "breakdown_by_terabyte",
-    "get_os_counts",
-    "output_os_by_version",
-    "get_supported_os",
-    "get_unsupported_os",
-)
+# Visualize method → PNG report slug. Disk-space methods share two reports; see _report_name.
+_GRAPH_METHOD_NAMES = {
+    "visualize_os_distribution": "get-os-counts",
+    "visualize_supported_os_distribution": "get-supported-os",
+    "visualize_unsupported_os_distribution": "get-unsupported-os",
+    "visualize_os_version_distribution": "output-os-by-version",
+}
 
 
 # Parameter Specification for methods that use the plotter decorator
@@ -87,7 +83,7 @@ def plotter(func: Callable[PlotterParam, None]) -> Callable[PlotterParam, Figure
 
         output_dir = _graph_output_dir(args)
         if output_dir is not None:
-            path = _unique_graph_path(output_dir, _graph_filename(args, kwargs))
+            path = _unique_graph_path(output_dir, _graph_filename(func, args, kwargs))
             figure.savefig(path, bbox_inches="tight")
             LOGGER.info("Wrote graph to %s", path)
             plt.close()
@@ -106,13 +102,24 @@ def _slug(value: str) -> str:
     return slug.strip("-") or "unknown"
 
 
-def _report_name(cfg: config.Config | None) -> str:
-    """CLI flag currently producing graphs, e.g. show-disk-space-by-os."""
-    if cfg is None:
-        return "graph"
-    for flag in _GRAPH_REPORT_FLAGS:
-        if getattr(cfg, flag, False):
-            return flag.replace("_", "-")
+def _report_name(
+    visualize_method: Callable[..., object],
+    parser_config: config.Config | None,
+    kwargs: dict[str, object],
+) -> str:
+    """PNG slug for the visualize method being called, not the first enabled CLI flag."""
+    method_name = getattr(visualize_method, "__name__", "")
+    mapped = _GRAPH_METHOD_NAMES.get(method_name)
+    if mapped:
+        return mapped
+    if method_name in {"visualize_disk_space_horizontal", "visualize_disk_space_vertical"}:
+        os_label = kwargs.get("os_filter") or kwargs.get("os_name")
+        if isinstance(os_label, str) and os_label.strip() and getattr(parser_config, "show_disk_space_by_os", False):
+            return "show-disk-space-by-os"
+        for flag in ("get_disk_space_ranges", "over_under_tb", "breakdown_by_terabyte"):
+            if getattr(parser_config, flag, False):
+                return flag.replace("_", "-")
+        return "show-disk-space-by-os"
     return "graph"
 
 
@@ -128,9 +135,13 @@ def _graph_output_dir(args: tuple[object, ...]) -> Path | None:
     return Path(output_dir) if output_dir else None
 
 
-def _graph_filename(args: tuple[object, ...], kwargs: dict[str, object]) -> str:
-    """Build a PNG filename from the report flag and optional OS label."""
-    report = _report_name(_visualizer_config(args))
+def _graph_filename(
+    visualize_method: Callable[..., object],
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+) -> str:
+    """Build a PNG filename from the visualize method and optional OS label."""
+    report = _report_name(visualize_method, _visualizer_config(args), kwargs)
     os_label = kwargs.get("os_filter") or kwargs.get("os_name")
     if isinstance(os_label, str) and os_label.strip():
         return f"{report}-{_slug(os_label)}.png"

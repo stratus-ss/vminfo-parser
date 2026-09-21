@@ -119,6 +119,29 @@ def test_main_funcs_no_graphs(mock_main: MockType, func: str, args: list[str]) -
     getattr(mock_main, func).assert_called_once_with(*expected_args)
 
 
+def test_main_multiple_reports_all_called(mock_main: MockType) -> None:
+    mock_main.config.show_disk_space_by_os = True
+    mock_main.config.get_supported_os = True
+    mock_main.config.get_unsupported_os = True
+    mock_main.config.generate_graphs = True
+
+    __main__.main()
+
+    mock_main.show_disk_space_by_os.assert_called_once_with(
+        mock_main.config, mock_main.analyzer, mock_main.cli_output, mock_main.visualizer
+    )
+    mock_main.get_supported_os.assert_called_once_with(
+        mock_main.config, mock_main.analyzer, mock_main.cli_output, mock_main.visualizer
+    )
+    mock_main.get_unsupported_os.assert_called_once_with(mock_main.analyzer, mock_main.cli_output, mock_main.visualizer)
+    mock_main.sort_by_site.assert_not_called()
+    mock_main.get_vm_density.assert_not_called()
+    mock_main.get_overcommit.assert_not_called()
+    mock_main.get_disk_space_ranges.assert_not_called()
+    mock_main.get_os_counts.assert_not_called()
+    mock_main.output_os_by_version.assert_not_called()
+
+
 def test_get_unsupported_os(mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType) -> None:
     __main__.get_unsupported_os(mock_analyzer, mock_clioutput, mock_visualizer)
     mock_analyzer.get_unsupported_os_counts.assert_called_once()
@@ -323,7 +346,7 @@ def test_get_disk_space_ranges_all_env(
     mock_clioutput.print_formatted_disk_space.assert_called_once_with(
         mock_analyzer.get_disk_space.return_value, os_filter=mock_config.os_name
     )
-    mock_visualizer.visualize_disk_space_vertical.assert_not_called
+    mock_visualizer.visualize_disk_space_vertical.assert_not_called()
     mock_visualizer.visualize_disk_space_horizontal.assert_called_once_with(
         mock_analyzer.get_disk_space.return_value, os_filter=mock_config.os_name
     )

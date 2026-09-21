@@ -3,7 +3,7 @@
 import logging
 
 # 3rd party imports
-import pandas as pd
+from pandas import Series
 
 from .analyzer import Analyzer
 from .clioutput import CLIOutput
@@ -39,7 +39,7 @@ def get_supported_os(config: Config, analyzer: Analyzer, cli_output: CLIOutput, 
         visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
     """
 
-    supported_counts: pd.Series = analyzer.get_supported_os_counts()
+    supported_counts: Series = analyzer.get_supported_os_counts()
 
     cli_output.format_series_output(supported_counts)
     if visualizer is not None:
@@ -102,7 +102,7 @@ def get_os_counts(config: Config, analyzer: Analyzer, cli_output: CLIOutput, vis
         visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
     """
 
-    counts: pd.Series = analyzer.get_operating_system_counts()
+    counts: Series = analyzer.get_operating_system_counts()
     cli_output.format_series_output(counts)
 
     if visualizer:
@@ -204,7 +204,51 @@ def get_overcommit(vm_data: VMData, analyzer: Analyzer, cli_output: CLIOutput) -
     cli_output.print_overcommit_by_host(host_data)
 
 
-def main(*args: str) -> None:  # noqa: C901
+def run_enabled_reports(
+    config: Config,
+    vm_data: VMData,
+    analyzer: Analyzer,
+    cli_output: CLIOutput,
+    visualizer: Visualizer | None,
+) -> None:
+    """Run every report whose config flag is enabled.
+
+    Args:
+        config (Config): Config instance
+        vm_data (VMData): VMData instance
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+        visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
+    """
+    if config.sort_by_site:
+        sort_by_site(vm_data, cli_output)
+
+    if config.get_vm_density:
+        get_vm_density(vm_data, analyzer, cli_output)
+
+    if config.get_overcommit:
+        get_overcommit(vm_data, analyzer, cli_output)
+
+    if config.show_disk_space_by_os:
+        show_disk_space_by_os(config, analyzer, cli_output, visualizer)
+
+    if config.get_disk_space_ranges or config.over_under_tb or config.breakdown_by_terabyte:
+        get_disk_space_ranges(config, analyzer, cli_output, visualizer)
+
+    if config.get_os_counts:
+        get_os_counts(config, analyzer, cli_output, visualizer)
+
+    if config.output_os_by_version:
+        output_os_by_version(analyzer, cli_output, visualizer)
+
+    if config.get_supported_os:
+        get_supported_os(config, analyzer, cli_output, visualizer)
+
+    if config.get_unsupported_os:
+        get_unsupported_os(analyzer, cli_output, visualizer)
+
+
+def main(*args: str) -> None:
     config = Config.from_args(*args)
     if config.generate_yaml:
         config.generate_yaml_from_parser()
@@ -220,33 +264,7 @@ def main(*args: str) -> None:  # noqa: C901
     cli_output = CLIOutput()
     analyzer = Analyzer(vm_data, config)
 
-    match True:
-        case config.sort_by_site:
-            sort_by_site(vm_data, cli_output)
-
-        case config.get_vm_density:
-            get_vm_density(vm_data, analyzer, cli_output)
-
-        case config.get_overcommit:
-            get_overcommit(vm_data, analyzer, cli_output)
-
-        case config.show_disk_space_by_os:
-            show_disk_space_by_os(config, analyzer, cli_output, visualizer)
-
-        case config.get_disk_space_ranges | config.over_under_tb | config.breakdown_by_terabyte:
-            get_disk_space_ranges(config, analyzer, cli_output, visualizer)
-
-        case config.get_os_counts:
-            get_os_counts(config, analyzer, cli_output, visualizer)
-
-        case config.output_os_by_version:
-            output_os_by_version(analyzer, cli_output, visualizer)
-
-        case config.get_supported_os:
-            get_supported_os(config, analyzer, cli_output, visualizer)
-
-        case config.get_unsupported_os:
-            get_unsupported_os(analyzer, cli_output, visualizer)
+    run_enabled_reports(config, vm_data, analyzer, cli_output, visualizer)
 
     # Save results if necessary
     vm_data.save_to_csv("output.csv")

@@ -163,6 +163,40 @@ def test_plotter_saves_report_name_without_os(
     assert (tmp_path / "get-os-counts.png").is_file()
 
 
+def test_plotter_names_stacked_reports_from_method(
+    tmp_path: Path,
+    all_os_count_series: pd.Series,
+    supported_os_count_series: pd.Series,
+    unsupported_os_count_series: pd.Series,
+    disk_range_counts_df: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(
+        Config(
+            show_disk_space_by_os=True,
+            get_disk_space_ranges=True,
+            get_os_counts=True,
+            get_supported_os=True,
+            get_unsupported_os=True,
+            graph_output_dir=tmp_path,
+        )
+    )
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df, os_filter="Ubuntu")
+    visualizer.visualize_disk_space_horizontal(disk_range_counts_df)
+    visualizer.visualize_os_distribution(all_os_count_series)
+    visualizer.visualize_supported_os_distribution(supported_os_count_series)
+    visualizer.visualize_unsupported_os_distribution(unsupported_os_count_series)
+
+    assert (tmp_path / "show-disk-space-by-os-Ubuntu.png").is_file()
+    assert (tmp_path / "get-disk-space-ranges.png").is_file()
+    assert (tmp_path / "get-os-counts.png").is_file()
+    assert (tmp_path / "get-supported-os.png").is_file()
+    assert (tmp_path / "get-unsupported-os.png").is_file()
+    assert not (tmp_path / "show-disk-space-by-os.png").is_file()
+    assert not (tmp_path / "show-disk-space-by-os-2.png").is_file()
+
+
 def test_plotter_avoids_filename_collision(
     tmp_path: Path,
     disk_range_counts_df: pd.DataFrame,

@@ -136,7 +136,7 @@ Currently supported headers:
 
 
 
-This program can be used either by passing in a combination of flags or by using a YAML file with the options set within.
+This program can be used either by passing in a combination of flags or by using a YAML file with the options set within. Multiple report flags (e.g. `--get-os-counts`, `--get-supported-os`, `--show-disk-space-by-os`) can be combined in a single invocation to produce all requested reports at once.
 
 For convenience, there is a `--generate-yaml` flag which will generate a YAML file with all of the possible arguments set to their default. If you want to capture all of the options that you pass into the program for future usage you can use the program with all of the flags you required and then append `--generate-yaml`.
 
