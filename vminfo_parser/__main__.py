@@ -92,6 +92,27 @@ def get_disk_space_ranges(
                 visualizer.visualize_disk_space_vertical(disk_space_df, os_filter=config.os_name)
 
 
+def get_memory_ranges(
+    config: Config, analyzer: Analyzer, cli_output: CLIOutput, visualizer: Visualizer | None
+) -> None:
+    """Get memory ranges from analyzer and pass to outputs.
+
+    Args:
+        config (Config): Config instance
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+        visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
+    """
+    memory_range_dataframe = analyzer.get_memory_ranges()
+    if not memory_range_dataframe.empty:
+        cli_output.print_formatted_disk_space(memory_range_dataframe)
+        if visualizer:
+            if config.environment_filter == "all":
+                visualizer.visualize_memory_ranges_horizontal(memory_range_dataframe)
+            else:
+                visualizer.visualize_memory_ranges_vertical(memory_range_dataframe)
+
+
 def get_os_counts(config: Config, analyzer: Analyzer, cli_output: CLIOutput, visualizer: Visualizer | None) -> None:
     """Get OS counts from analyzer and pass to outputs.
 
@@ -241,6 +262,26 @@ def run_os_count_reports(
         get_granular_os_counts(config, analyzer, cli_output, visualizer)
 
 
+def run_range_reports(
+    config: Config,
+    analyzer: Analyzer,
+    cli_output: CLIOutput,
+    visualizer: Visualizer | None,
+) -> None:
+    """Run disk and memory range reports whose config flags are enabled.
+
+    Args:
+        config (Config): Config instance
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+        visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
+    """
+    if config.get_disk_space_ranges or config.over_under_tb or config.breakdown_by_terabyte:
+        get_disk_space_ranges(config, analyzer, cli_output, visualizer)
+    if config.get_memory_ranges:
+        get_memory_ranges(config, analyzer, cli_output, visualizer)
+
+
 def run_enabled_reports(
     config: Config,
     vm_data: VMData,
@@ -269,8 +310,13 @@ def run_enabled_reports(
     if config.show_disk_space_by_os:
         show_disk_space_by_os(config, analyzer, cli_output, visualizer)
 
-    if config.get_disk_space_ranges or config.over_under_tb or config.breakdown_by_terabyte:
-        get_disk_space_ranges(config, analyzer, cli_output, visualizer)
+    if (
+        config.get_disk_space_ranges
+        or config.over_under_tb
+        or config.breakdown_by_terabyte
+        or config.get_memory_ranges
+    ):
+        run_range_reports(config, analyzer, cli_output, visualizer)
 
     if config.get_os_counts or config.get_granular_os_counts:
         run_os_count_reports(config, analyzer, cli_output, visualizer)

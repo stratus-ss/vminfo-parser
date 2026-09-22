@@ -372,3 +372,41 @@ def test_get_disk_space_ranges_all_env(
     mock_visualizer.visualize_disk_space_horizontal.assert_called_once_with(
         mock_analyzer.get_disk_space.return_value, os_filter=mock_config.os_name
     )
+
+
+def test_get_memory_ranges_all_env_uses_horizontal_chart(
+    mock_config: MockType, mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType
+) -> None:
+    mock_analyzer.get_memory_ranges.return_value.empty = False
+    mock_config.environment_filter = "all"
+    __main__.get_memory_ranges(mock_config, mock_analyzer, mock_clioutput, mock_visualizer)
+    mock_analyzer.get_memory_ranges.assert_called_once()
+    mock_clioutput.print_formatted_disk_space.assert_called_once_with(mock_analyzer.get_memory_ranges.return_value)
+    mock_visualizer.visualize_memory_ranges_horizontal.assert_called_once_with(
+        mock_analyzer.get_memory_ranges.return_value
+    )
+    mock_visualizer.visualize_memory_ranges_vertical.assert_not_called()
+
+
+def test_get_memory_ranges_split_env_uses_vertical_chart(
+    mock_config: MockType, mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType
+) -> None:
+    mock_analyzer.get_memory_ranges.return_value.empty = False
+    mock_config.environment_filter = "both"
+    __main__.get_memory_ranges(mock_config, mock_analyzer, mock_clioutput, mock_visualizer)
+    mock_visualizer.visualize_memory_ranges_vertical.assert_called_once_with(
+        mock_analyzer.get_memory_ranges.return_value
+    )
+    mock_visualizer.visualize_memory_ranges_horizontal.assert_not_called()
+
+
+def test_get_memory_ranges_no_graphs(
+    mock_config: MockType, mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType
+) -> None:
+    mock_analyzer.get_memory_ranges.return_value.empty = False
+    mock_config.environment_filter = "all"
+    __main__.get_memory_ranges(mock_config, mock_analyzer, mock_clioutput, None)
+    mock_clioutput.print_formatted_disk_space.assert_called_once_with(mock_analyzer.get_memory_ranges.return_value)
+    mock_visualizer.visualize_memory_ranges_horizontal.assert_not_called()
+    mock_visualizer.visualize_memory_ranges_vertical.assert_not_called()
+

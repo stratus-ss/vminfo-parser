@@ -140,6 +140,25 @@ def test_set_column_headings_invalid(caplog: pytest.LogCaptureFixture) -> None:
     assert vmdata.column_headers == {}
 
 
+def test_set_column_headings_prefers_populated_disk_column() -> None:
+    """When VERSION_2 and VERSION_3 names both match, use the filled disk column."""
+    df = pd.DataFrame(
+        {
+            "OS according to the configuration file": ["Red Hat Enterprise Linux 8 (64-bit)"] * 3,
+            "OS according to the VMware Tools": ["Red Hat Enterprise Linux 8 (64-bit)"] * 3,
+            "Memory": [4096, 8192, 2048],
+            "CPUs": [2, 4, 1],
+            "Provisioned MiB": [pd.NA, pd.NA, pd.NA],
+            "Total disk capacity MiB": [20480, 40960, 10240],
+        }
+    )
+    vmdata = VMData(df=df, normalize=False)
+    vmdata._set_column_headings()
+
+    assert vmdata.column_headers["vmDisk"] == "Total disk capacity MiB"
+    assert vmdata.unit_type == "MiB"
+
+
 @pytest.mark.parametrize("datafile", ["csv"], indirect=["datafile"])
 def test_set_os_columns_from_datafile(vmdata_with_headers: VMData) -> None:
     original_df = vmdata_with_headers.df.copy()

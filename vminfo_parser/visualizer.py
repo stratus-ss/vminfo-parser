@@ -26,6 +26,8 @@ _GRAPH_METHOD_NAMES = {
     "visualize_supported_os_distribution": "get-supported-os",
     "visualize_unsupported_os_distribution": "get-unsupported-os",
     "visualize_os_version_distribution": "output-os-by-version",
+    "visualize_memory_ranges_horizontal": "get-memory-ranges",
+    "visualize_memory_ranges_vertical": "get-memory-ranges",
 }
 
 
@@ -223,6 +225,36 @@ class Visualizer:
         plt.xlabel("Disk Space Range")
         plt.ylabel("Number of VMs")
         plt.title(f'VM Disk Size Ranges Sorted by Environment {f"for {os_filter}" if os_filter else ""}')
+
+    @plotter
+    def visualize_memory_ranges_horizontal(self: t.Self, dataframe: pd.DataFrame) -> None:
+        """Create a horizontal bar chart for memory range counts.
+
+        Args:
+            dataframe (pd.DataFrame): Memory range counts, optionally split by environment.
+        """
+        _, axes = plt.subplots()
+        chart_data = dataframe.copy()
+        if len(chart_data.axes) == 2:
+            chart_data = chart_data.sum(axis=1)
+        for range_label, count in chart_data.items():
+            axes.barh(f"{range_label}", count)
+        plt.ylabel("Memory Range")
+        plt.xlabel("Number of VMs")
+        axes.xaxis.set_major_formatter(ticker.ScalarFormatter())
+        plt.title("VM Memory Allocation Breakdown")
+
+    @plotter
+    def visualize_memory_ranges_vertical(self: t.Self, dataframe: pd.DataFrame) -> None:
+        """Create a grouped vertical bar chart for environment-split memory ranges.
+
+        Args:
+            dataframe (pd.DataFrame): Memory range counts split by environment.
+        """
+        dataframe.plot(kind="bar", stacked=False, figsize=(12, 8), rot=45)
+        plt.xlabel("Memory Range")
+        plt.ylabel("Number of VMs")
+        plt.title("VM Memory Ranges by Environment")
 
     @plotter
     def visualize_os_distribution(

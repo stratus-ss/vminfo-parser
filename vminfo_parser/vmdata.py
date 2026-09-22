@@ -281,6 +281,22 @@ class VMData:
         LOGGER.critical("The following headers are missing: %s", missing_headers)
         sys.exit(1)
 
+    def _header_set_score(self: t.Self, expected_headers: t.Mapping[str, str]) -> tuple[int, int]:
+        """Score a header set by column-name matches, then by populated cells.
+
+        The populated-cell count breaks ties when two versions share the same
+        column names (for example VERSION_2 and VERSION_3 after concatenating
+        mixed inventory files) so the version whose mapped columns actually
+        contain data is preferred.
+        """
+        name_matches = 0
+        populated_cells = 0
+        for header in expected_headers.values():
+            if header in self.df.columns:
+                name_matches += 1
+                populated_cells += int(self.df[header].notna().sum())
+        return name_matches, populated_cells
+
     def _set_column_headings(self: t.Self) -> None:
         """
         Sets the column headings based on the versions defined in const.COLUMN_HEADERS.
@@ -294,15 +310,12 @@ class VMData:
         # Get combined headers from config if available, otherwise use const.COLUMN_HEADERS
         headers_to_check = getattr(self.config, "column_headers", const.COLUMN_HEADERS) if hasattr(self, "config") and self.config else const.COLUMN_HEADERS
         best_match = None
-        max_matches = 0
+        best_score = (0, 0)
 
         for version, headers in headers_to_check.items():
-            matches = 0
-            for header in headers.values():
-                if header in self.df.columns:
-                    matches += 1
-            if matches > max_matches:
-                max_matches = matches
+            score = self._header_set_score(headers)
+            if score > best_score:
+                best_score = score
                 best_match = version
 
         if best_match is None:

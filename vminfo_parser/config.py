@@ -72,6 +72,13 @@ def _get_parser() -> argparse.ArgumentParser:
         "Can be combine with --prod-env-labels and --sort-by-env to target a specific environment",
     )
     parser.add_argument(
+        "--get-memory-ranges",
+        action="store_true",
+        default=False,
+        help="Break down VMs by allocated memory into predefined GiB ranges. "
+        "Works with --minimum-count, --sort-by-env, and --generate-graphs.",
+    )
+    parser.add_argument(
         "--show-disk-space-by-os",
         action="store_true",
         default=False,

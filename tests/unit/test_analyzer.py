@@ -497,3 +497,100 @@ class TestGranularOsCounts:
         assert "Microsoft Windows Server 2019" not in counts.index
         for label in counts.index:
             assert str(label).startswith("Ubuntu Linux")
+
+
+class TestMemoryRanges:
+    def _configure(
+        self,
+        analyzer: Analyzer,
+        rows: dict[str, list[object]],
+        environment_filter: str = "all",
+        count_filter: int | None = None,
+    ) -> Analyzer:
+        analyzer.vm_data.create_environment_filtered_dataframe.return_value = pd.DataFrame(rows)
+        analyzer.vm_data.column_headers = {"vmMemory": "Memory", "environment": "Environment"}
+        analyzer.config.environment_filter = environment_filter
+        analyzer.config.count_filter = count_filter
+        return analyzer
+
+    def test_generate_memory_ranges_all_tiers(self, analyzer: Analyzer) -> None:
+        ranges = analyzer.generate_memory_ranges(512)
+        assert ranges == [
+            (0, 4),
+            (5, 8),
+            (9, 16),
+            (17, 32),
+            (33, 64),
+            (65, 128),
+            (129, 256),
+            (257, 512),
+        ]
+
+    def test_generate_memory_ranges_caps_at_max(self, analyzer: Analyzer) -> None:
+        ranges = analyzer.generate_memory_ranges(100)
+        assert ranges[-1] == (65, 100)
+        assert (129, 256) not in ranges
+
+    def test_calculate_memory_ranges_drops_empty(self, analyzer: Analyzer) -> None:
+        self._configure(analyzer, {"Memory": [2, 2, 32, 32]})
+        ranges = analyzer.calculate_memory_ranges(pd.DataFrame({"Memory": [2, 2, 32, 32]}))
+        assert ranges == [(0, 4), (17, 32)]
+
+    def test_get_memory_ranges_assigns_labels(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "Memory": [2, 8, 16, 64],
+                "Environment": ["prod"] * 4,
+            },
+        )
+        counts = analyzer.get_memory_ranges()
+        assert "0-4 GiB" in counts.index
+        assert "5-8 GiB" in counts.index
+        assert "9-16 GiB" in counts.index
+        assert "33-64 GiB" in counts.index
+
+    def test_get_memory_ranges_count_filter_collapses_other(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "Memory": [2, 8, 16, 16, 16],
+                "Environment": ["prod"] * 5,
+            },
+            count_filter=3,
+        )
+        counts = analyzer.get_memory_ranges()
+        assert "0-4 GiB" not in counts.index
+        assert "5-8 GiB" not in counts.index
+        assert "9-16 GiB" in counts.index
+        assert "Other" in counts.index
+        assert int(counts.loc["Other", "Count"]) == 2
+
+    def test_get_memory_ranges_env_both(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "Memory": [2, 8, 16],
+                "Environment": ["prod", "non-prod", "prod"],
+            },
+            environment_filter="both",
+        )
+        counts = analyzer.get_memory_ranges()
+        assert isinstance(counts, pd.DataFrame)
+        assert "total" not in counts.columns
+        assert "prod" in counts.columns
+        assert "non-prod" in counts.columns
+        assert counts.loc["0-4 GiB", "prod"] == 1
+        assert counts.loc["5-8 GiB", "non-prod"] == 1
+
+    def test_get_memory_ranges_sorted_ascending(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "Memory": [64, 2, 16, 8],
+                "Environment": ["prod"] * 4,
+            },
+        )
+        counts = analyzer.get_memory_ranges()
+        assert list(counts.index) == ["0-4 GiB", "5-8 GiB", "9-16 GiB", "33-64 GiB"]
+

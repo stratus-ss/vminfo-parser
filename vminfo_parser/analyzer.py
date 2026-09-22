@@ -298,6 +298,157 @@ class Analyzer:
 
         return self.sort_by_disk_space_range(df)
 
+    def generate_memory_ranges(self: t.Self, max_memory: int) -> list[tuple[int, int]]:
+        """Generate predefined memory ranges trimmed to the dataset maximum.
+
+        Args:
+            max_memory (int): Largest VM memory value in GiB.
+
+        Returns:
+            list[tuple[int, int]]: Inclusive memory ranges to evaluate.
+        """
+        base_tiers = [
+            (0, 4),
+            (5, 8),
+            (9, 16),
+            (17, 32),
+            (33, 64),
+            (65, 128),
+            (129, 256),
+            (257, max_memory),
+        ]
+        trimmed_ranges: list[tuple[int, int]] = []
+        for lower, upper in base_tiers:
+            if lower > max_memory:
+                break
+            if upper > max_memory:
+                trimmed_ranges.append((lower, max_memory))
+                break
+            trimmed_ranges.append((lower, upper))
+        return trimmed_ranges
+
+    def _numeric_memory_column(self: t.Self, dataframe: pd.DataFrame) -> str:
+        """Clean and convert the VM memory column to numeric GiB values.
+
+        Args:
+            dataframe (pd.DataFrame): Frame whose memory column should be cleaned.
+
+        Returns:
+            str: Memory column heading that was converted in place.
+        """
+        memory_heading = self.vm_data.column_headers["vmMemory"]
+        cleaned_memory = (
+            dataframe[memory_heading]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+            .str.replace(r"\s+", "", regex=True)
+        )
+        dataframe[memory_heading] = pd.to_numeric(cleaned_memory, errors="coerce")
+        return memory_heading
+
+    def calculate_memory_ranges(self: t.Self, dataframe: pd.DataFrame | None = None) -> list[tuple[int, int]]:
+        """Return memory ranges that contain at least one VM.
+
+        Args:
+            dataframe (pd.DataFrame | None): Optional frame to evaluate. Defaults to vm_data.df.
+
+        Returns:
+            list[tuple[int, int]]: Populated inclusive memory ranges.
+        """
+        if dataframe is None:
+            dataframe = self.vm_data.df
+        memory_heading = self._numeric_memory_column(dataframe)
+        valid_memory = dataframe[memory_heading].dropna()
+        if dataframe.empty or valid_memory.empty:
+            return []
+        max_memory = int(valid_memory.max())
+        populated_ranges: list[tuple[int, int]] = []
+        for lower, upper in self.generate_memory_ranges(max_memory):
+            vms_in_range = dataframe[
+                (dataframe[memory_heading] >= lower) & (dataframe[memory_heading] <= upper)
+            ]
+            if not vms_in_range.empty:
+                populated_ranges.append((lower, upper))
+        return populated_ranges
+
+    def _collapse_memory_range_counts(self: t.Self, counts: pd.DataFrame) -> pd.DataFrame:
+        """Collapse below-threshold memory range rows into Other.
+
+        Args:
+            counts (pd.DataFrame): Count table indexed by Memory Range.
+
+        Returns:
+            pd.DataFrame: Filtered counts, with Other only when more than one row is below threshold.
+        """
+        minimum_count = self.config.count_filter
+        if minimum_count is None:
+            return counts
+        if self.config.environment_filter == "both":
+            totals = counts.sum(axis=1)
+            below_threshold = counts[totals < minimum_count]
+            if len(below_threshold) <= 1:
+                return counts
+            kept_counts = counts[totals >= minimum_count].copy()
+            kept_counts.loc["Other"] = below_threshold.sum()
+            return kept_counts
+        count_column = "Count" if "Count" in counts.columns else counts.columns[0]
+        below_threshold = counts[counts[count_column] < minimum_count]
+        if len(below_threshold) <= 1:
+            return counts
+        kept_counts = counts[counts[count_column] >= minimum_count].copy()
+        kept_counts.loc["Other"] = below_threshold.sum()
+        return kept_counts
+
+    def sort_by_memory_range(self: t.Self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Count VMs by Memory Range, apply the count filter, and sort by upper bound.
+
+        Args:
+            dataframe (pd.DataFrame): Frame with a Memory Range column already assigned.
+
+        Returns:
+            pd.DataFrame: Sorted count table indexed by Memory Range.
+        """
+        labeled = dataframe.dropna(subset=["Memory Range"])
+        environment_heading = self.vm_data.column_headers["environment"]
+        environment_filter = self.config.environment_filter
+        if environment_filter == "all":
+            counts = labeled["Memory Range"].value_counts().to_frame("Count")
+        elif environment_filter == "both":
+            counts = labeled.groupby(["Memory Range", environment_heading]).size().unstack(fill_value=0)
+        else:
+            environment_rows = labeled[labeled[environment_heading] == environment_filter]
+            counts = environment_rows.groupby(["Memory Range", environment_heading]).size().unstack(fill_value=0)
+        counts = self._collapse_memory_range_counts(counts)
+
+        def sort_key_for_label(label: object) -> int:
+            if str(label) == "Other":
+                return 10**9
+            return int(str(label).split("-")[1].split()[0])
+
+        counts["sort_key"] = [sort_key_for_label(label) for label in counts.index]
+        sorted_counts = counts.sort_values(by="sort_key", ascending=True)
+        return sorted_counts.drop(columns=["sort_key"])
+
+    def get_memory_ranges(self: t.Self) -> pd.DataFrame:
+        """Build the memory-range count table for the current environment filter.
+
+        Returns:
+            pd.DataFrame: Counts indexed by Memory Range, empty when no data is available.
+        """
+        dataframe = self.vm_data.create_environment_filtered_dataframe(
+            self.config.environments, env_filter=self.config.environment_filter
+        )
+        if dataframe.empty:
+            return pd.DataFrame()
+        memory_heading = self._numeric_memory_column(dataframe)
+        memory_ranges = self.calculate_memory_ranges(dataframe=dataframe)
+        if not memory_ranges:
+            return pd.DataFrame()
+        for lower, upper in memory_ranges:
+            in_range = (dataframe[memory_heading] >= lower) & (dataframe[memory_heading] <= upper)
+            dataframe.loc[in_range, "Memory Range"] = f"{lower}-{upper} GiB"
+        return self.sort_by_memory_range(dataframe)
+
     def get_unique_os_names(self: t.Self) -> list[str]:
         """Generate list of unique os names from dataframe.
 

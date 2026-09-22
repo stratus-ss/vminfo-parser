@@ -242,3 +242,32 @@ def test_plotter_avoids_filename_collision(
 
     assert (tmp_path / "show-disk-space-by-os-Ubuntu.png").is_file()
     assert (tmp_path / "show-disk-space-by-os-Ubuntu-2.png").is_file()
+
+
+@pytest.fixture
+def memory_range_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        {"Count": [100, 500, 300, 50]},
+        index=pd.Index(["0-4 GiB", "5-8 GiB", "9-16 GiB", "17-32 GiB"], name="Memory Range"),
+    )
+
+
+def test_visualize_memory_ranges_horizontal(
+    visualizer: Visualizer, memory_range_dataframe: pd.DataFrame
+) -> None:
+    figure = visualizer.visualize_memory_ranges_horizontal(memory_range_dataframe)
+    assert isinstance(figure, plt.Figure)
+    axes = figure.axes[0]
+    assert "VM Memory Allocation Breakdown" in axes.get_title()
+    assert len(axes.patches) == len(memory_range_dataframe)
+
+
+def test_plotter_saves_memory_ranges(
+    tmp_path: Path,
+    memory_range_dataframe: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(get_memory_ranges=True, graph_output_dir=tmp_path))
+    visualizer.visualize_memory_ranges_horizontal(memory_range_dataframe)
+    assert (tmp_path / "get-memory-ranges.png").is_file()

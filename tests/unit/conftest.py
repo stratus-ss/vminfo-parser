@@ -113,6 +113,7 @@ def mock_config(mocker: MockFixture) -> Generator[MockType, None, None]:
         ("get_overcommit", False),
         ("show_disk_space_by_os", False),
         ("get_disk_space_ranges", False),
+        ("get_memory_ranges", False),
         ("get_os_counts", False),
         ("get_granular_os_counts", False),
         ("output_os_by_version", False),
