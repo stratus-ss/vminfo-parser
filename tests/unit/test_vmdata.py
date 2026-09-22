@@ -117,7 +117,7 @@ def test_set_column_headings(df: pd.DataFrame, unit: str, version: int) -> None:
     assert all([version is not vmdata.column_headers for version in vm_const.COLUMN_HEADERS.values()])
 
 
-def test_set_column_headings_invalid() -> None:
+def test_set_column_headings_invalid(caplog: pytest.LogCaptureFixture) -> None:
     vmdata = VMData(
         df=pd.DataFrame(
             {
@@ -130,9 +130,13 @@ def test_set_column_headings_invalid() -> None:
         normalize=False,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit):
         vmdata._set_column_headings()
 
+    assert "The following headers are missing" in caplog.text
+    assert "VM OS" in caplog.text
+    assert "Provisioned MiB" in caplog.text
+    assert "Total disk capacity MiB" in caplog.text
     assert vmdata.column_headers == {}
 
 

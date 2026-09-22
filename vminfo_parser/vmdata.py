@@ -3,6 +3,7 @@ import glob
 import logging
 import os
 import re
+import sys
 import typing as t
 from pathlib import Path
 
@@ -270,6 +271,16 @@ class VMData:
         instance.cluster_df = cluster_df
         return instance
 
+    def _missing_column_names(self: t.Self, expected_headers: t.Mapping[str, str]) -> list[str]:
+        """Return expected header values not present in self.df.columns."""
+        return [header for header in expected_headers.values() if header not in self.df.columns]
+
+    def _exit_on_missing_headers(self: t.Self, missing_headers: list[str] | dict[str, list[str]]) -> t.NoReturn:
+        """Log missing header names and exit. Accepts a flat list (partial match)
+        or a dict keyed by version name (zero match)."""
+        LOGGER.critical("The following headers are missing: %s", missing_headers)
+        sys.exit(1)
+
     def _set_column_headings(self: t.Self) -> None:
         """
         Sets the column headings based on the versions defined in const.COLUMN_HEADERS.
@@ -278,7 +289,7 @@ class VMData:
             None
 
         Raises:
-            ValueError: If no matching header set is found.
+            SystemExit: If no matching header set is found or required headers are missing.
         """
         # Get combined headers from config if available, otherwise use const.COLUMN_HEADERS
         headers_to_check = getattr(self.config, "column_headers", const.COLUMN_HEADERS) if hasattr(self, "config") and self.config else const.COLUMN_HEADERS
@@ -295,14 +306,18 @@ class VMData:
                 best_match = version
 
         if best_match is None:
-            raise ValueError("No matching header set found")
+            missing_by_version = {
+                version: self._missing_column_names(headers)
+                for version, headers in headers_to_check.items()
+            }
+            self._exit_on_missing_headers(missing_by_version)
 
         LOGGER.debug(f"Using VERSION_{best_match} as the closest match.")
 
         self.column_headers = headers_to_check[best_match].copy()
         self.unit_type = "GiB" if best_match == "VERSION_1" else "MiB"
 
-        missing_headers = [header for header in self.column_headers.values() if header not in self.df.columns]
+        missing_headers = self._missing_column_names(self.column_headers)
         if self.column_headers["environment"] in missing_headers:
             LOGGER.warning(
                 "Environment heading %s is missing. Inserting empty column so program can continue"
@@ -313,8 +328,7 @@ class VMData:
             # caught as missing
             missing_headers.remove(self.column_headers["environment"])
         if missing_headers:
-            LOGGER.critical("The following headers are missing: %s", missing_headers)
-            exit()
+            self._exit_on_missing_headers(missing_headers)
 
     def _set_os_columns(self: t.Self) -> None:
         """
