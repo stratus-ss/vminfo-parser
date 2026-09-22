@@ -121,9 +121,10 @@ Currently supported headers:
 | `--generate-yaml`            | Generates a YAML configuration file with all available parser options.                                                                       | `Config.generate_yaml_from_parser` in `config.py`      |
 | `--get-disk-space-ranges`    | Generates a report showing the distribution of disk space across VMs.                                                                          | `get_disk_space_ranges` function in `main.py`          |
 | `--get-os-counts`            | Outputs a report with a count of VMs per operating system.                                                                                   | `get_os_counts` function in `main.py`                  |
+| `--get-granular-os-counts`   | Outputs a report with a count of VMs per OS Name plus Version (missing versions show as `unknown`). Works with `--minimum-count` and `--sort-by-env`. | `get_granular_os_counts` function in `main.py`        |
 | `--get-supported-os`         | Displays counts (and graph if enabled) for supported operating systems (for OpenShift Virt).                                                   | `get_supported_os` function in `main.py`                  |
 | `--get-unsupported-os`       | Displays counts (and graph if enabled) for unsupported operating systems.                                                                    | `get_unsupported_os` function in `main.py`                |
-| `--minimum-count`            | Excludes operating system entries that have counts below the specified threshold.                                                            | `Analyzer._calculate_os_counts` in `analyzer.py`           |
+| `--minimum-count`            | Excludes operating system entries that have counts below the specified threshold. Applied by `--get-os-counts` and `--get-granular-os-counts`. | `Analyzer._calculate_os_counts` / `get_granular_os_counts` |
 | `--os-name`                  | Filters reports to include only the specified operating system.                                                                              | `Analyzer.get_disk_space` in `analyzer.py`                |
 | `--over-under-tb`            | Provides a simple breakdown separating machines under 1 TiB from those over 1 TiB.                                                             | `Analyzer.generate_dynamic_ranges`                      |
 | `--output-os-by-version`     | Outputs a detailed breakdown of operating system versions for a given OS.                                                                    | `output_os_by_version` function in `main.py`              |
@@ -136,7 +137,7 @@ Currently supported headers:
 
 
 
-This program can be used either by passing in a combination of flags or by using a YAML file with the options set within. Multiple report flags (e.g. `--get-os-counts`, `--get-supported-os`, `--show-disk-space-by-os`) can be combined in a single invocation to produce all requested reports at once.
+This program can be used either by passing in a combination of flags or by using a YAML file with the options set within. Multiple report flags (e.g. `--get-os-counts`, `--get-granular-os-counts`, `--get-supported-os`, `--show-disk-space-by-os`) can be combined in a single invocation to produce all requested reports at once.
 
 For convenience, there is a `--generate-yaml` flag which will generate a YAML file with all of the possible arguments set to their default. If you want to capture all of the options that you pass into the program for future usage you can use the program with all of the flags you required and then append `--generate-yaml`.
 
@@ -169,6 +170,20 @@ CentOS                        592
 ```
 
 ![plot](examples/Get_OS_Counts.png)
+
+### Get Granular OS Counts
+
+Counts VMs by combined OS Name and Version. `--minimum-count` collapses uncommon labels into `Other`. `--sort-by-env` splits prod and non-prod the same way as other reports.
+
+```sh
+vminfo-parser --file tests/files/Test_Inventory_VMs.csv --get-granular-os-counts --minimum-count 500 --generate-graphs
+
+combined_os_label                count
+-----------------------------  -------
+Ubuntu Linux unknown             16583
+Oracle Linux 7                    8438
+Microsoft Windows Server 2019     7264
+```
 
 ### Get Supported OS
 ```sh

@@ -71,6 +71,7 @@ def test_main_default(mock_main: MockType) -> None:
     mock_main.show_disk_space_by_os.assert_not_called()
     mock_main.get_disk_space_ranges.assert_not_called()
     mock_main.get_os_counts.assert_not_called()
+    mock_main.get_granular_os_counts.assert_not_called()
     mock_main.output_os_by_version.assert_not_called()
     mock_main.get_supported_os.assert_not_called()
     mock_main.get_unsupported_os.assert_not_called()
@@ -139,6 +140,7 @@ def test_main_multiple_reports_all_called(mock_main: MockType) -> None:
     mock_main.get_overcommit.assert_not_called()
     mock_main.get_disk_space_ranges.assert_not_called()
     mock_main.get_os_counts.assert_not_called()
+    mock_main.get_granular_os_counts.assert_not_called()
     mock_main.output_os_by_version.assert_not_called()
 
 
@@ -198,6 +200,26 @@ def test_get_os_counts_no_graphs(
     mock_analyzer.get_operating_system_counts.assert_called_once()
     mock_clioutput.format_series_output.assert_called_once_with(mock_analyzer.get_operating_system_counts.return_value)
     mock_visualizer.visualize_os_distribution.assert_not_called()
+
+
+def test_get_granular_os_counts(
+    mock_config: MockType, mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType
+) -> None:
+    __main__.get_granular_os_counts(mock_config, mock_analyzer, mock_clioutput, mock_visualizer)
+    mock_analyzer.get_granular_os_counts.assert_called_once()
+    mock_clioutput.format_series_output.assert_called_once_with(mock_analyzer.get_granular_os_counts.return_value)
+    mock_visualizer.visualize_granular_os_distribution.assert_called_once_with(
+        mock_analyzer.get_granular_os_counts.return_value, min_count=mock_config.count_filter
+    )
+
+
+def test_get_granular_os_counts_no_graphs(
+    mock_config: MockType, mock_analyzer: MockType, mock_clioutput: MockType, mock_visualizer: MockType
+) -> None:
+    __main__.get_granular_os_counts(mock_config, mock_analyzer, mock_clioutput, None)
+    mock_analyzer.get_granular_os_counts.assert_called_once()
+    mock_clioutput.format_series_output.assert_called_once_with(mock_analyzer.get_granular_os_counts.return_value)
+    mock_visualizer.visualize_granular_os_distribution.assert_not_called()
 
 
 def test_sort_by_site(mock_vmdata: MockType, mock_clioutput: MockType) -> None:

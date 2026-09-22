@@ -132,6 +132,14 @@ def _get_parser() -> argparse.ArgumentParser:
         help="Display a graph of the unsupported operating systems for OpenShift Virt",
     )
     parser.add_argument(
+        "--get-granular-os-counts",
+        action="store_true",
+        default=False,
+        help="Generate a report counting VMs by OS Name plus Version "
+        "(for example 'Red Hat Enterprise Linux 8'). "
+        "Works with --minimum-count and --sort-by-env.",
+    )
+    parser.add_argument(
         "--get-vm-density",
         action="store_true",
         default=False,

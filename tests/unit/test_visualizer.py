@@ -68,6 +68,17 @@ def all_os_count_series(supported_os_count_series: pd.Series, unsupported_os_cou
     return pd.concat([supported_os_count_series, unsupported_os_count_series])
 
 
+@pytest.fixture
+def granular_os_count_series() -> pd.Series:
+    return pd.Series(
+        {
+            "Microsoft Windows Server 2019": 1200,
+            "Red Hat Enterprise Linux 8": 800,
+            "Ubuntu Linux 22.04": 400,
+        }
+    )
+
+
 @pytest.mark.mpl_image_compare(savefig_kwargs={"bbox_inches": "tight"})
 def test_plotter(visualizer: Visualizer) -> plt.Figure:
     @plotter
@@ -149,6 +160,28 @@ def test_plotter_saves_os_by_version_named_per_os(
 
     assert (tmp_path / "output-os-by-version-Red-Hat-Enterprise-Linux.png").is_file()
     assert (tmp_path / "output-os-by-version-Windows.png").is_file()
+
+
+def test_visualize_granular_os_distribution(
+    visualizer: Visualizer, granular_os_count_series: pd.Series
+) -> None:
+    figure = visualizer.visualize_granular_os_distribution(granular_os_count_series, min_count=100)
+    assert isinstance(figure, plt.Figure)
+    axes = figure.axes[0]
+    assert "All In-Scope VMs" in axes.get_title()
+    assert len(axes.patches) == len(granular_os_count_series)
+
+
+def test_plotter_saves_granular_os_counts(
+    tmp_path: Path,
+    granular_os_count_series: pd.Series,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("vminfo_parser.visualizer.config._IS_TEST", False)
+    visualizer = Visualizer(Config(get_granular_os_counts=True, graph_output_dir=tmp_path))
+    visualizer.visualize_granular_os_distribution(granular_os_count_series)
+
+    assert (tmp_path / "get-granular-os-counts.png").is_file()
 
 
 def test_plotter_saves_report_name_without_os(

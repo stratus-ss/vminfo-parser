@@ -465,6 +465,60 @@ class Analyzer:
 
         return self._calculate_os_counts(dataFrame)
 
+    def get_granular_os_counts(self: t.Self) -> pd.Series | pd.DataFrame:
+        """Count VMs by combined OS Name and OS Version labels.
+
+        Missing or blank OS Version values become ``unknown``. Minimum-count
+        filtering matches ``_calculate_os_counts``: more than one below-threshold
+        row is collapsed into ``Other``.
+
+        Returns:
+            pd.Series | pd.DataFrame: Descending counts indexed by combined
+            label, or an environment-split DataFrame when ``environment_filter``
+            is ``both``.
+        """
+        data_frame = self.vm_data.create_environment_filtered_dataframe(
+            self.config.environments, env_filter=self.config.environment_filter
+        )
+        if self.config.os_name:
+            data_frame = data_frame[data_frame["OS Name"] == self.config.os_name]
+
+        operating_system_name = data_frame["OS Name"].fillna("").astype(str).str.strip()
+        operating_system_version = data_frame["OS Version"].fillna("unknown").astype(str).str.strip()
+        operating_system_version = operating_system_version.replace("", "unknown")
+        combined_label = (operating_system_name + " " + operating_system_version).str.strip()
+        data_frame = data_frame.assign(combined_os_label=combined_label)
+
+        if self.config.environment_filter == "both":
+            counts_by_environment = (
+                data_frame.groupby(["combined_os_label", self.vm_data.column_headers["environment"]])
+                .size()
+                .unstack(fill_value=0)
+            )
+            counts_by_environment["total"] = counts_by_environment.sum(axis=1)
+            counts_by_environment = counts_by_environment.sort_values(by="total", ascending=False)
+            if self.config.count_filter:
+                other_counts = counts_by_environment[counts_by_environment["total"] < self.config.count_filter]
+                if len(other_counts) > 1:
+                    other_sum = other_counts.sum()
+                    counts_by_environment = counts_by_environment[
+                        counts_by_environment["total"] >= self.config.count_filter
+                    ]
+                    counts_by_environment = counts_by_environment.sort_values(by="total", ascending=False)
+                    counts_by_environment = counts_by_environment.T
+                    counts_by_environment["Other"] = other_sum
+                    counts_by_environment = counts_by_environment.T
+            return counts_by_environment.drop("total", axis=1).astype(int)
+
+        counts = data_frame["combined_os_label"].value_counts()
+        if self.config.count_filter:
+            other_counts = counts[counts < self.config.count_filter]
+            if len(other_counts) > 1:
+                other_total = other_counts.sum()
+                counts = counts[counts >= self.config.count_filter]
+                counts["Other"] = other_total
+        return counts.astype(int)
+
     def get_os_version_distribution(self: t.Self, os_name: str) -> pd.DataFrame:
         """Create Dataframe of Counts by OS Version for a given OS.
 

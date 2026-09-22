@@ -109,6 +109,23 @@ def get_os_counts(config: Config, analyzer: Analyzer, cli_output: CLIOutput, vis
         visualizer.visualize_os_distribution(counts, config.count_filter)
 
 
+def get_granular_os_counts(
+    config: Config, analyzer: Analyzer, cli_output: CLIOutput, visualizer: Visualizer | None
+) -> None:
+    """Get granular OS counts from analyzer and pass to outputs.
+
+    Args:
+        config (Config): Config instance
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+        visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
+    """
+    counts = analyzer.get_granular_os_counts()
+    cli_output.format_series_output(counts)
+    if visualizer:
+        visualizer.visualize_granular_os_distribution(counts, min_count=config.count_filter)
+
+
 def show_disk_space_by_os(
     config: Config, analyzer: Analyzer, cli_output: CLIOutput, visualizer: Visualizer | None
 ) -> None:
@@ -204,6 +221,26 @@ def get_overcommit(vm_data: VMData, analyzer: Analyzer, cli_output: CLIOutput) -
     cli_output.print_overcommit_by_host(host_data)
 
 
+def run_os_count_reports(
+    config: Config,
+    analyzer: Analyzer,
+    cli_output: CLIOutput,
+    visualizer: Visualizer | None,
+) -> None:
+    """Run OS-count reports whose config flags are enabled.
+
+    Args:
+        config (Config): Config instance
+        analyzer (Analyzer): Analyzer instance
+        cli_output (CLIOutput): CLI Output instance
+        visualizer (Visualizer | None): Visualizer instance, or None if no graph output desired
+    """
+    if config.get_os_counts:
+        get_os_counts(config, analyzer, cli_output, visualizer)
+    if config.get_granular_os_counts:
+        get_granular_os_counts(config, analyzer, cli_output, visualizer)
+
+
 def run_enabled_reports(
     config: Config,
     vm_data: VMData,
@@ -235,8 +272,8 @@ def run_enabled_reports(
     if config.get_disk_space_ranges or config.over_under_tb or config.breakdown_by_terabyte:
         get_disk_space_ranges(config, analyzer, cli_output, visualizer)
 
-    if config.get_os_counts:
-        get_os_counts(config, analyzer, cli_output, visualizer)
+    if config.get_os_counts or config.get_granular_os_counts:
+        run_os_count_reports(config, analyzer, cli_output, visualizer)
 
     if config.output_os_by_version:
         output_os_by_version(analyzer, cli_output, visualizer)

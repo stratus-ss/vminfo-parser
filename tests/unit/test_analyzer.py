@@ -387,3 +387,113 @@ class TestOvercommitAnalysis:
         h2 = result[result["Host"] == "h2"].iloc[0]
         assert h2["Total_vCPU"] == 0
         assert h2["CPU_Overcommit"] == 0.0
+
+
+class TestGranularOsCounts:
+    def _configure(
+        self,
+        analyzer: Analyzer,
+        rows: dict[str, list[object]],
+        environment_filter: str = "all",
+        count_filter: int | None = None,
+        os_name: str | None = None,
+    ) -> Analyzer:
+        analyzer.vm_data.create_environment_filtered_dataframe.return_value = pd.DataFrame(rows)
+        analyzer.vm_data.column_headers = {"environment": "Environment"}
+        analyzer.config.environment_filter = environment_filter
+        analyzer.config.count_filter = count_filter
+        analyzer.config.os_name = os_name
+        return analyzer
+
+    def test_returns_combined_labels(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": ["Microsoft Windows Server", "Red Hat Enterprise Linux"],
+                "OS Version": ["2019", "8"],
+            },
+        )
+        counts = analyzer.get_granular_os_counts()
+        assert "Microsoft Windows Server 2019" in counts.index
+        assert "Red Hat Enterprise Linux 8" in counts.index
+
+    def test_count_filter_applied(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": [
+                    "Microsoft Windows Server",
+                    "Microsoft Windows Server",
+                    "Microsoft Windows Server",
+                    "Red Hat Enterprise Linux",
+                    "Ubuntu Linux",
+                    "Debian GNU/Linux",
+                ],
+                "OS Version": ["2019", "2019", "2016", "8", "22.04", "11"],
+            },
+            count_filter=2,
+        )
+        counts = analyzer.get_granular_os_counts()
+        assert "Ubuntu Linux 22.04" not in counts.index
+        assert "Debian GNU/Linux 11" not in counts.index
+        assert "Red Hat Enterprise Linux 8" not in counts.index
+        assert "Microsoft Windows Server 2016" not in counts.index
+        assert "Microsoft Windows Server 2019" in counts.index
+        assert "Other" in counts.index
+        assert int(counts["Other"]) == 4
+
+    def test_sorted_descending(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": ["A", "B", "B", "B", "C", "C"],
+                "OS Version": ["1", "1", "1", "1", "1", "1"],
+            },
+        )
+        counts = analyzer.get_granular_os_counts()
+        totals = [int(value) for value in counts.to_list()]
+        assert totals == sorted(totals, reverse=True)
+
+    def test_missing_version_shows_unknown(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": ["Microsoft Windows Server", "Ubuntu Linux"],
+                "OS Version": [None, ""],
+            },
+        )
+        counts = analyzer.get_granular_os_counts()
+        assert "Microsoft Windows Server unknown" in counts.index
+        assert "Ubuntu Linux unknown" in counts.index
+
+    def test_env_filter_both(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": ["Microsoft Windows Server", "Microsoft Windows Server", "Ubuntu Linux"],
+                "OS Version": ["2019", "2019", "22.04"],
+                "Environment": ["prod", "non-prod", "prod"],
+            },
+            environment_filter="both",
+        )
+        counts = analyzer.get_granular_os_counts()
+        assert isinstance(counts, pd.DataFrame)
+        assert "total" not in counts.columns
+        assert "prod" in counts.columns
+        assert "non-prod" in counts.columns
+        assert counts.loc["Microsoft Windows Server 2019", "prod"] == 1
+        assert counts.loc["Microsoft Windows Server 2019", "non-prod"] == 1
+
+    def test_os_name_filter_applied(self, analyzer: Analyzer) -> None:
+        self._configure(
+            analyzer,
+            {
+                "OS Name": ["Microsoft Windows Server", "Ubuntu Linux", "Ubuntu Linux"],
+                "OS Version": ["2019", "22.04", "20.04"],
+            },
+            os_name="Ubuntu Linux",
+        )
+        counts = analyzer.get_granular_os_counts()
+        assert "Microsoft Windows Server 2019" not in counts.index
+        for label in counts.index:
+            assert str(label).startswith("Ubuntu Linux")

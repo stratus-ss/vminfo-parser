@@ -22,6 +22,7 @@ LOGGER = logging.getLogger(__name__)
 # Visualize method → PNG report slug. Disk-space methods share two reports; see _report_name.
 _GRAPH_METHOD_NAMES = {
     "visualize_os_distribution": "get-os-counts",
+    "visualize_granular_os_distribution": "get-granular-os-counts",
     "visualize_supported_os_distribution": "get-supported-os",
     "visualize_unsupported_os_distribution": "get-unsupported-os",
     "visualize_os_version_distribution": "output-os-by-version",
@@ -246,6 +247,69 @@ class Visualizer:
         plt.ylabel("Operating Systems")
 
     @plotter
+    def visualize_granular_os_distribution(
+        self: t.Self,
+        counts: pd.Series | pd.DataFrame,
+        min_count: int | None = None,
+    ) -> None:
+        """Create a horizontal bar chart of combined OS Name + Version counts.
+
+        Args:
+            counts: Series of totals, or DataFrame split by environment.
+            min_count: Optional threshold shown in the title.
+        """
+        title = "All In-Scope VMs - OS Distribution (Bar Chart)"
+        if min_count is not None and min_count > 0:
+            title = f"{title} (>= {min_count:,})"
+
+        if isinstance(counts, pd.DataFrame):
+            self._plot_granular_os_by_environment(counts, title)
+            return
+        self._plot_granular_os_series(counts, title)
+
+    def _plot_granular_os_series(self: t.Self, counts: pd.Series, title: str) -> None:
+        """Render a single-color horizontal bar chart from a counts Series."""
+        labels = [str(label) for label in counts.index]
+        values = [int(value) for value in counts.to_list()]
+        figure_height = max(4, len(labels) * 0.45)
+        figure, axes = plt.subplots(figsize=(10, figure_height))
+        y_positions = range(len(labels))
+        axes.barh(list(y_positions), values, color=_get_colors(labels))
+        axes.set_yticks(list(y_positions))
+        axes.set_yticklabels(labels)
+        axes.invert_yaxis()
+        _annotate_granular_os_totals(axes, values)
+        axes.set_xlabel("Number of VMs")
+        axes.set_ylabel("Operating Systems")
+        axes.set_title(title)
+        figure.tight_layout()
+
+    def _plot_granular_os_by_environment(self: t.Self, counts: pd.DataFrame, title: str) -> None:
+        """Render a stacked horizontal bar chart with environment columns."""
+        environment_order = [name for name in ("non-prod", "prod") if name in counts.columns]
+        if not environment_order:
+            environment_order = list(counts.columns)
+        plot_data = counts[environment_order].copy()
+        row_totals = plot_data.sum(axis=1).sort_values(ascending=False)
+        plot_data = plot_data.loc[row_totals.index]
+        figure_height = max(4, len(plot_data) * 0.45)
+        environment_colors = {"non-prod": "tab:orange", "prod": "tab:blue"}
+        color_list = [environment_colors.get(name, "tab:gray") for name in environment_order]
+        axes = plot_data.plot(
+            kind="barh",
+            stacked=True,
+            figsize=(10, figure_height),
+            color=color_list,
+        )
+        axes.invert_yaxis()
+        totals: list[int] = [int(value) for value in row_totals.to_list()]
+        _annotate_granular_os_totals(axes, totals)
+        axes.set_xlabel("Number of VMs")
+        axes.set_ylabel("Operating Systems")
+        axes.set_title(title)
+        plt.tight_layout()
+
+    @plotter
     def visualize_unsupported_os_distribution(
         self: t.Self,
         counts: pd.Series,
@@ -321,6 +385,18 @@ class Visualizer:
 
         plt.xticks(rotation=0)
         ax.set_yticklabels(dataFrame["OS Version"])
+
+
+def _annotate_granular_os_totals(axes: plt.Axes, totals: list[int]) -> None:
+    """Write count and percent labels to the right of each horizontal bar."""
+    grand_total = sum(totals)
+    largest_total = max(totals) if totals else 0
+    padding = largest_total * 0.01 if largest_total else 0
+    for index, total in enumerate(totals):
+        percent = (total / grand_total * 100) if grand_total else 0.0
+        axes.text(total + padding, index, f"{total:,} VMs ({percent:.1f}%)", va="center")
+    if largest_total:
+        axes.set_xlim(right=largest_total * 1.25)
 
 
 def _get_colors(os_names: list[str]) -> list[ColorType]:
