@@ -1,3 +1,7 @@
+# AI Usage Disclaimer
+
+Previous to Sept 2026, this project was maintained and written by the author. Post Sept 2026, some AI assistance is being utilized to generate tests, do code reviews and documentation updates. The author constrains AI based on complexity, code quality, and other software engineering practices (context7 and so on). This project has a strict, no-vibe coding policy. Tools may be used but the human is responsible for commits and functionality of the code submitted.
+
 # vminfo_parser
 
 **vminfo_parser** is a command-line tool to help you process and analyze virtual machine (VM) data from CSV or Excel files. The tool reads your raw inventory data, normalizes the information, and produces useful reports such as operating system counts, disk space distributions, and per-site resource usage. For users who prefer graphical output over plain text tables, you can enable visual graphs with a simple flag. 
